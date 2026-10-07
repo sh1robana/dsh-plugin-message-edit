@@ -1,3 +1,27 @@
+.overlay, .composer {
+  /* 独立的不透明表面保证半透明皮肤下仍能读清编辑内容。 */
+  --message-edit-panel: #fafbfc;
+  --message-edit-hover: #eef0f3;
+  --message-edit-border: #dce0e7;
+  --message-edit-text: #1d2430;
+  --message-edit-secondary: #687487;
+  --message-edit-danger: #c62828;
+  --message-edit-link: #406bf0;
+  color: var(--message-edit-text);
+  color-scheme: light;
+}
+
+:global(body[data-ds-dark-theme]) .overlay, :global(body[data-ds-dark-theme]) .composer {
+  --message-edit-panel: #25272b;
+  --message-edit-hover: #33363d;
+  --message-edit-border: #494d56;
+  --message-edit-text: #eef0f5;
+  --message-edit-secondary: #b0b7c4;
+  --message-edit-danger: #ff8e8e;
+  --message-edit-link: #8da9ff;
+  color-scheme: dark;
+}
+
 .overlay {
   position: fixed;
   inset: 0;
@@ -6,50 +30,196 @@
   align-items: center;
   justify-content: center;
   background: var(--dsw-alias-bg-mask, rgba(0, 0, 0, 0.45));
+  padding: 24px;
+  box-sizing: border-box;
 }
 
 .panel {
-  width: 560px;
+  width: min(960px, 100%);
+  max-height: calc(100dvh - 48px);
+  overflow: auto;
   box-sizing: border-box;
-  padding: 14px 16px;
-  border: 1px solid var(--dsw-alias-border-l2);
+  padding: 20px 24px;
+  border: 1px solid var(--message-edit-border);
   border-radius: 10px;
-  background: var(--dsw-alias-bg-module-platform);
+  background: var(--message-edit-panel);
 }
 
 .title {
   padding: 4px 0 10px;
-  font-size: 13px;
-  color: var(--dsw-alias-label-primary);
+  font-size: 15px;
+  color: var(--message-edit-text);
 }
 
 .input {
   width: 100%;
-  min-height: 160px;
+  height: min(52dvh, 560px);
+  min-height: min(320px, 40dvh);
+  max-height: calc(100dvh - 180px);
   box-sizing: border-box;
   padding: 10px;
-  border: 1px solid var(--dsw-alias-border-l2);
+  border: 1px solid var(--message-edit-border);
   border-radius: 8px;
-  background: var(--dsw-alias-bg-module-platform);
-  color: var(--dsw-alias-label-primary);
+  background: var(--message-edit-panel);
+  color: var(--message-edit-text);
   font: inherit;
   resize: vertical;
+  line-height: 1.6;
 }
 
 .footer {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
+  flex-wrap: wrap;
   padding: 10px 0 0;
 }
 
 .footer button {
   padding: 6px 14px;
-  border: 1px solid var(--dsw-alias-border-l2);
+  border: 1px solid var(--message-edit-border);
   border-radius: 6px;
-  background: var(--dsw-alias-bg-module-hover);
-  color: var(--dsw-alias-label-primary);
+  background: var(--message-edit-hover);
+  color: var(--message-edit-text);
   cursor: pointer;
+}
+
+.footer button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.attachmentEditor {
+  padding: 0 0 10px;
+}
+
+.attachmentList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.attachmentList:empty {
+  display: none;
+}
+
+.attachmentCard {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 240px;
+  min-height: 72px;
+  padding: 8px 30px 8px 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--message-edit-border);
+  border-radius: 8px;
+  color: var(--message-edit-text);
+  background: var(--message-edit-panel);
+}
+
+.attachmentPreview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 64px;
+  width: 64px;
+  height: 64px;
+  border-radius: 6px;
+  object-fit: contain;
+  font-size: 12px;
+  color: var(--message-edit-secondary);
+  background: var(--message-edit-hover);
+}
+
+.attachmentInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.attachmentInfo > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachmentStatus {
+  color: var(--message-edit-secondary);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.attachmentRemove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--message-edit-hover);
+  color: var(--message-edit-text);
+  cursor: pointer;
+  font-size: 18px;
+}
+
+.attachmentRemove:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.attachmentAdd {
+  margin: 8px 0 0;
+  padding: 6px 10px;
+  border: 1px solid var(--message-edit-border);
+  border-radius: 6px;
+  background: var(--message-edit-hover);
+  color: var(--message-edit-text);
+  cursor: pointer;
+}
+
+.footer .attachmentAdd {
+  margin: 0 auto 0 0;
+}
+
+.attachmentNotice {
+  padding-top: 4px;
+  color: var(--message-edit-danger);
+  font-size: 12px;
+}
+
+.attachmentNotice:empty {
+  display: none;
+}
+
+.confirmationOverlay {
+  z-index: 1001;
+}
+
+.confirmPanel {
+  width: min(400px, 100%);
+  box-sizing: border-box;
+  padding: 20px 24px;
+  border: 1px solid var(--message-edit-border);
+  border-radius: 10px;
+  background: var(--message-edit-panel);
+}
+
+@media (max-width: 600px) {
+  .overlay {
+    padding: 12px;
+  }
+
+  .panel {
+    padding: 16px;
+    max-height: calc(100dvh - 24px);
+  }
 }
 
 .iconButton {
@@ -62,13 +232,13 @@
   border: none;
   border-radius: 4px;
   background: transparent;
-  color: var(--dsw-alias-label-secondary);
+  color: var(--message-edit-secondary);
   cursor: pointer;
 }
 
 .iconButton:hover {
-  color: var(--dsw-alias-label-primary);
-  background: var(--dsw-alias-bg-module-hover);
+  color: var(--message-edit-text);
+  background: var(--message-edit-hover);
 }
 
 .picker {
@@ -80,25 +250,330 @@
 
 .pickerItem {
   padding: 8px 10px;
-  border: 1px solid var(--dsw-alias-border-l2);
+  border: 1px solid var(--message-edit-border);
   border-radius: 6px;
-  background: var(--dsw-alias-bg-module-hover);
-  color: var(--dsw-alias-label-primary);
+  background: var(--message-edit-hover);
+  color: var(--message-edit-text);
   text-align: left;
   font-size: 12px;
   cursor: pointer;
 }
 
 .pickerItem:hover {
-  background: var(--dsw-alias-bg-module-platform);
+  background: var(--message-edit-panel);
 }
 
 .pickerItemActive {
   padding: 6px 14px;
-  border: 1px solid var(--dsw-alias-border-l2);
+  border: 1px solid var(--message-edit-border);
   border-radius: 6px;
-  background: var(--dsw-alias-bg-module-hover);
-  color: var(--dsw-alias-label-primary);
+  background: var(--message-edit-hover);
+  color: var(--message-edit-text);
   cursor: pointer;
   align-self: flex-end;
+}
+
+.composer {
+  position: relative;
+  padding: 14px 16px 10px;
+  border: 1px solid var(--message-edit-border);
+  border-radius: 20px;
+  background: var(--message-edit-panel);
+}
+
+.composer:focus-within {
+  border-color: var(--dsw-alias-brand-primary, #4d77f5);
+}
+
+.richInput {
+  height: min(42dvh, 500px);
+  min-height: min(250px, 32dvh);
+  overflow: auto;
+  padding: 8px 0;
+  border: none;
+  outline: none;
+  border-radius: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  resize: none;
+}
+
+.richInput:empty::before {
+  content: attr(data-placeholder);
+  color: var(--message-edit-secondary);
+  pointer-events: none;
+}
+
+.fileReference {
+  display: inline;
+  border-radius: 4px;
+  color: var(--message-edit-link);
+  cursor: pointer;
+  padding: 0 2px;
+  white-space: pre-wrap;
+}
+
+.fileReference:hover {
+  background: var(--message-edit-hover);
+}
+
+.composerToolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 8px;
+}
+
+.composerToolbar button {
+  border: none;
+  background: transparent;
+  color: var(--message-edit-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.composerToolbar button:hover {
+  background: var(--message-edit-hover);
+}
+
+.composerToolbar .composerPlus {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--message-edit-hover);
+  font-size: 24px;
+  line-height: 1;
+  padding: 0;
+}
+
+.composerControl, .composerModel {
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.composerModel {
+  margin-left: auto;
+  max-width: 70%;
+  overflow-wrap: anywhere;
+}
+
+.composerMenu, .referenceSuggestions {
+  position: absolute;
+  z-index: 2;
+  bottom: 52px;
+  left: 12px;
+  right: 12px;
+  max-height: min(44dvh, 400px);
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--message-edit-border);
+  border-radius: 14px;
+  background: var(--message-edit-panel);
+  box-shadow: 0 4px 20px #0001;
+}
+
+.composerMenu[hidden], .referenceSuggestions[hidden] {
+  display: none;
+}
+
+.composerMenu button, .referenceSuggestions button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  border: none;
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--message-edit-text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.composerMenu button:hover, .referenceSuggestions button:hover {
+  background: var(--message-edit-hover);
+}
+
+.referenceSuggestions button[aria-selected="true"] {
+  background: var(--message-edit-hover);
+}
+
+.composerMenu .menuValue {
+  color: var(--message-edit-secondary);
+  font-size: 12px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composerMenu[data-kind="permission"], .composerMenu[data-kind="model"], .composerMenu[data-kind="modelList"] {
+  box-sizing: border-box;
+  left: auto;
+  right: 16px;
+  width: min(320px, calc(100% - 32px));
+  padding: 6px;
+  border-radius: 16px;
+}
+
+.composerMenu[data-kind="permission"] {
+  left: 54px;
+  right: auto;
+  width: min(220px, calc(100% - 70px));
+}
+
+.composerMenu[data-kind="modelList"] {
+  max-height: none;
+  overflow: hidden;
+}
+
+.composerMenu[data-kind="permission"] button, .composerMenu[data-kind="model"] button, .composerMenu[data-kind="modelList"] button {
+  min-height: 38px;
+  padding: 8px 10px;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.composerMenu button[role="menuitemradio"] .menuValue {
+  flex: 0 0 16px;
+  color: var(--message-edit-text);
+  text-align: right;
+}
+
+.composerMenu .menuBack {
+  min-height: 28px;
+  font-size: 12px;
+  color: var(--message-edit-secondary);
+}
+
+.menuItemLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composerMenu button[role="menuitemradio"] .menuItemLabel {
+  flex: 1;
+}
+
+.composerMenu .modelSearch {
+  border: none;
+  padding: 8px 10px;
+  outline: none;
+  font-size: 14px;
+}
+
+.modelSearch:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--message-edit-border);
+}
+
+.modelList {
+  max-height: min(38dvh, 280px);
+  overflow-y: auto;
+}
+
+.composerMenu input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--message-edit-border);
+  border-radius: 8px;
+  background: inherit;
+  color: var(--message-edit-text);
+  font: inherit;
+}
+
+.menuHeading {
+  padding: 8px 10px 4px;
+  color: var(--message-edit-secondary);
+  font-size: 12px;
+}
+
+.attachmentAdd.attachmentAddCircle {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.attachmentOpen {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.attachmentOpen[data-kind="image"] {
+  cursor: zoom-in;
+}
+
+.attachmentOpen:disabled {
+  cursor: wait;
+}
+
+.attachmentOpen:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary, #4d77f5);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+.attachmentLightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  background: rgba(0, 0, 0, 0.84);
+  box-sizing: border-box;
+}
+
+.attachmentOriginal {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.attachmentPreviewClose {
+  position: absolute;
+  top: 14px;
+  right: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.16);
+  color: white;
+  font-size: 28px;
+  cursor: pointer;
+}
+
+.attachmentPreviewClose:focus-visible {
+  outline: 2px solid white;
+  outline-offset: 3px;
 }

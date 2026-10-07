@@ -5,9 +5,11 @@
  * Icons are the official outline-16 SVGs inlined to avoid bundling the
  * primitives package.
  */
-import { useEffect } from 'react'
+import { useLayoutEffect, useRef } from 'react'
 import type { EditableMessageBlock } from '../shared.ts'
 import type { MessageEditFace } from './controller.ts'
+import { confirmCancelEdit } from './confirmCancelEdit.ts'
+import { mountMessageComposer, type MessageComposerHandle } from './MessageComposer.ts'
 import styles from './InlineMessageEdit.module.css'
 
 const BLOCK_TITLE: Record<EditableMessageBlock['kind'], string> = {
@@ -53,58 +55,120 @@ function blockTitle(kind: EditableMessageBlock['kind']): string {
 
 type OverlayCleanup = () => void
 
-/** Mount one editor DOM effect and return its exact inverse. */
-function mountEditor(
+/** 编辑器支持用户消息只保存或保存并发送，关闭前确认取消。 */
+export function mountEditor(
   block: EditableMessageBlock,
   edit: MessageEditFace['edit'],
   close: () => void,
+  attachmentTools: MessageEditFace['attachmentTools'],
+  composerTools: MessageEditFace['composerTools'],
 ): OverlayCleanup {
   const overlay = document.createElement('div')
   overlay.className = STYLE.overlay
   const panel = document.createElement('div')
   panel.className = STYLE.panel
+  panel.setAttribute('role', 'dialog')
+  panel.setAttribute('aria-modal', 'true')
+  panel.setAttribute('aria-label', blockTitle(block.kind))
   const title = document.createElement('div')
   title.className = STYLE.title
   title.textContent = blockTitle(block.kind)
   const input = document.createElement('textarea')
   input.className = STYLE.input
   input.value = block.text
+  input.setAttribute('aria-label', '消息正文')
+  const attachments = document.createElement('div')
+  attachments.className = styles['attachmentEditor'] ?? ''
+  const error = document.createElement('div')
+  error.className = styles['attachmentNotice'] ?? ''
+  error.setAttribute('role', 'alert')
   const footer = document.createElement('div')
   footer.className = STYLE.footer
   const save = document.createElement('button')
+  save.type = 'button'
   save.textContent = '保存'
+  const send = block.kind === 'user' ? document.createElement('button') : undefined
+  if (send !== undefined) {
+    send.type = 'button'
+    send.textContent = '保存并发送'
+  }
   const cancel = document.createElement('button')
+  cancel.type = 'button'
   cancel.textContent = '取消'
-  footer.append(save, cancel)
-  panel.append(title, input, footer)
+  footer.append(save, ...send === undefined ? [] : [send], cancel)
+  panel.append(title, ...block.kind === 'user' ? [attachments] : [input], error, footer)
   overlay.appendChild(panel)
   document.body.appendChild(overlay)
-  input.focus()
-  input.setSelectionRange(input.value.length, input.value.length)
   let mounted = true
   let saving = false
-  const saveEdit = (): void => {
-    if (saving) return
+  let uploading = false
+  let composer: MessageComposerHandle | undefined
+  let closeConfirmation: OverlayCleanup | undefined
+  const updateButtons = (): void => {
+    save.disabled = saving || uploading
+    if (send !== undefined) send.disabled = saving || uploading
+    cancel.disabled = saving
+    input.readOnly = saving
+  }
+  const applyEdit = (regenerate: boolean): void => {
+    if (saving || uploading) return
     saving = true
-    save.disabled = true
-    void edit(block, input.value, 'truncate').then((applied) => {
-      if (!mounted) return
-      if (applied) {
-        close()
-        return
+    updateButtons()
+    composer?.setDisabled(true)
+    error.textContent = ''
+    void (async () => {
+      try {
+        const payload = await composer?.serialize()
+        if (!mounted) return
+        const applied = await edit(block, composer?.text() ?? input.value, 'truncate', regenerate, payload, composer?.settings(regenerate))
+        if (!mounted) return
+        if (applied) close()
+        else error.textContent = '保存失败，请检查消息状态后重试。'
+      } catch (cause) {
+        if (mounted) error.textContent = cause instanceof Error ? cause.message : String(cause)
+      } finally {
+        if (mounted) {
+          saving = false
+          composer?.setDisabled(false)
+          updateButtons()
+        }
       }
-      saving = false
-      save.disabled = false
+    })()
+  }
+  const saveEdit = (): void => { applyEdit(block.kind !== 'user') }
+  const saveAndSend = (): void => { applyEdit(true) }
+  const cancelEdit = (): void => {
+    if (saving || closeConfirmation !== undefined) return
+    closeConfirmation = confirmCancelEdit(() => {
+      closeConfirmation = undefined
+      close()
+    }, () => {
+      closeConfirmation = undefined
+      if (composer === undefined) input.focus()
+      else composer.focus()
     })
   }
-  const cancelEdit = (): void => { close() }
-  const dismiss = (event: MouseEvent): void => { if (event.target === overlay) close() }
+  const dismiss = (event: MouseEvent): void => { if (event.target === overlay) cancelEdit() }
+  if (block.kind === 'user') {
+    composer = mountMessageComposer(attachments, block, attachmentTools, composerTools, {
+      onBusy: busy => { uploading = busy; updateButtons() },
+      onSave: saveEdit, onSend: saveAndSend,
+    })
+    composer.focus()
+  } else {
+    input.focus()
+    input.setSelectionRange(input.value.length, input.value.length)
+  }
   save.addEventListener('click', saveEdit)
+  send?.addEventListener('click', saveAndSend)
   cancel.addEventListener('click', cancelEdit)
   overlay.addEventListener('click', dismiss)
   return () => {
     mounted = false
+    composer?.dispose()
+    closeConfirmation?.()
     save.removeEventListener('click', saveEdit)
+    send?.removeEventListener('click', saveAndSend)
     cancel.removeEventListener('click', cancelEdit)
     overlay.removeEventListener('click', dismiss)
     overlay.remove()
@@ -152,7 +216,7 @@ function mountPicker(
 }
 
 /** Compose every overlay with a single idempotent active inverse. */
-function createOverlayHost(edit: MessageEditFace['edit']): {
+function createOverlayHost(edit: MessageEditFace['edit'], attachmentTools: MessageEditFace['attachmentTools'], composerTools: MessageEditFace['composerTools']): {
   editBlock(block: EditableMessageBlock): void
   chooseBlock(blocks: readonly EditableMessageBlock[]): void
   dispose(): void
@@ -178,7 +242,7 @@ function createOverlayHost(edit: MessageEditFace['edit']): {
     }
   }
   const editBlock = (block: EditableMessageBlock): void => {
-    mount(close => mountEditor(block, edit, close))
+    mount(close => mountEditor(block, edit, close, attachmentTools, composerTools))
   }
   const chooseBlock = (blocks: readonly EditableMessageBlock[]): void => {
     mount(close => mountPicker(blocks, (block) => {
@@ -193,19 +257,34 @@ function createOverlayHost(edit: MessageEditFace['edit']): {
   }
 }
 
-/** Inject retry + edit icon buttons into each message action row. */
+/** 按消息标识更新操作按钮，数据刷新时保留按钮与正在编辑的弹窗。 */
 export function InlineMessageEdit({
   messages,
   edit,
   retry,
+  attachmentTools,
+  composerTools,
+  disabled = false,
 }: {
   messages: readonly EditableMessageBlock[]
   edit: MessageEditFace['edit']
   retry: MessageEditFace['retry']
+  attachmentTools: MessageEditFace['attachmentTools']
+  composerTools: MessageEditFace['composerTools']
+  disabled?: boolean
 }): null {
-  useEffect(() => {
-    const cleanups: Array<() => void> = []
-    const overlays = createOverlayHost(edit)
+  const current = useRef({ messages, disabled })
+  current.current = { messages, disabled }
+  const synchronize = useRef<(() => void) | undefined>(undefined)
+  useLayoutEffect(() => {
+    const bindings = new Map<HTMLElement, {
+      eventSeq: number
+      blocks: readonly EditableMessageBlock[]
+      editButton: HTMLButtonElement
+      retryButton: HTMLButtonElement
+      dispose(): void
+    }>()
+    const overlays = createOverlayHost(edit, attachmentTools, composerTools)
     let observer: MutationObserver | undefined
     let alive = true
     let frame: number | undefined
@@ -213,39 +292,72 @@ export function InlineMessageEdit({
 
     const sync = (): void => {
       const actionRows = Array.from(document.querySelectorAll<HTMLElement>('[class*="actions"]'))
+      const presentRows = new Set(actionRows)
+      for (const [row, binding] of bindings) {
+        if (presentRows.has(row)) continue
+        binding.dispose()
+        bindings.delete(row)
+      }
+      const blocksByEvent = new Map<number, EditableMessageBlock[]>()
+      const turns = new Map<number, { user?: number; assistant?: number }>()
+      for (const message of current.current.messages) {
+        let blocks = blocksByEvent.get(message.eventSeq)
+        if (blocks === undefined) { blocks = []; blocksByEvent.set(message.eventSeq, blocks) }
+        blocks.push(message)
+        let turn = turns.get(message.turn)
+        if (turn === undefined) { turn = {}; turns.set(message.turn, turn) }
+        if (message.kind === 'user') turn.user ??= message.eventSeq
+        else turn.assistant = message.eventSeq
+      }
       const claimedEvents = new Set<number>()
       for (const row of actionRows) {
         const marker = row as HTMLElement & {
           __messageEditInjected?: boolean
           __messageEditEventSeq?: number
         }
-        if (marker.__messageEditInjected === true) {
+        let binding = bindings.get(row)
+        if (marker.__messageEditInjected === true && binding === undefined) {
           if (marker.__messageEditEventSeq !== undefined) claimedEvents.add(marker.__messageEditEventSeq)
           continue
         }
-        const text = (row.parentElement?.parentElement?.textContent ?? '').trim()
-        if (text.length === 0) continue
-        const matchingEvents = [...new Set(messages
-          .filter(message => message.text.length > 0 && text.includes(message.text.slice(0, 24)))
-          .map(message => message.eventSeq))]
-        const eventSeq = matchingEvents.find(candidate => !claimedEvents.has(candidate))
-        if (eventSeq === undefined) continue
-        const blocks = messages.filter(message => message.eventSeq === eventSeq)
-        if (blocks.length === 0) continue
+        // 新版将助手操作栏放在回合尾部，按 DOM 的回合标识匹配，避免重复文本串到其他消息。
+        const node = row.closest<HTMLElement>('[data-chat-flow-kind]')
+        const kind = node?.dataset['chatFlowKind']
+        const turn = Number(node?.dataset['chatTurn'])
+        const eventSeq = !Number.isSafeInteger(turn) || turn < 1 ? undefined
+          : kind === 'user' ? turns.get(turn)?.user
+            : kind === 'turn-tail' ? turns.get(turn)?.assistant : undefined
+        const blocks = eventSeq === undefined ? undefined : blocksByEvent.get(eventSeq)
+        if (eventSeq === undefined || blocks === undefined || claimedEvents.has(eventSeq)) {
+          binding?.dispose()
+          bindings.delete(row)
+          continue
+        }
+        claimedEvents.add(eventSeq)
+        if (binding?.eventSeq === eventSeq && row.contains(binding.editButton) && row.contains(binding.retryButton)) {
+          binding.blocks = blocks
+          binding.editButton.disabled = current.current.disabled
+          binding.retryButton.disabled = current.current.disabled
+          continue
+        }
+        binding?.dispose()
+        bindings.delete(row)
         const previousMarker = marker.__messageEditInjected
         const previousEventSeq = marker.__messageEditEventSeq
         marker.__messageEditInjected = true
         marker.__messageEditEventSeq = eventSeq
-        claimedEvents.add(eventSeq)
 
         const editButton = document.createElement('button')
         editButton.className = STYLE.iconButton
         editButton.setAttribute('aria-label', '编辑消息')
         editButton.title = '编辑消息'
+        editButton.setAttribute('data-message-edit-control', '')
+        editButton.disabled = current.current.disabled
         editButton.appendChild(svgIcon(EDIT_PATH))
         const editMessage = (): void => {
-          if (blocks.length === 1 && blocks[0] !== undefined) overlays.editBlock(blocks[0])
-          else overlays.chooseBlock(blocks)
+          if (current.current.disabled || binding === undefined) return
+          if (binding.blocks.length === 1 && binding.blocks[0] !== undefined) overlays.editBlock(binding.blocks[0])
+          else overlays.chooseBlock(binding.blocks)
         }
         editButton.addEventListener('click', editMessage)
 
@@ -253,15 +365,17 @@ export function InlineMessageEdit({
         retryButton.className = STYLE.iconButton
         retryButton.setAttribute('aria-label', '重试此回合')
         retryButton.title = '重试此回合'
+        retryButton.setAttribute('data-message-edit-control', '')
+        retryButton.disabled = current.current.disabled
         retryButton.appendChild(svgIcon(REFRESH_PATH))
-        const turn = blocks[0]?.turn
         const retryTurn = (): void => {
-          if (turn !== undefined) void retry(turn, 'truncate')
+          if (current.current.disabled) return
+          const targetTurn = binding?.blocks[0]?.turn
+          if (targetTurn !== undefined) void retry(targetTurn, 'truncate')
         }
         retryButton.addEventListener('click', retryTurn)
 
-        // Insert after the last official action button so injected icons
-        // stay contiguous with copy/branch and the clock keeps its side.
+        // 保持图标紧跟官方按钮，不改变时间标记的位置。
         const officialButtons = Array.from(row.querySelectorAll('button'))
           .filter(button => button !== editButton && button !== retryButton)
         const lastOfficial = officialButtons.at(-1)
@@ -272,7 +386,7 @@ export function InlineMessageEdit({
           row.appendChild(editButton)
           row.appendChild(retryButton)
         }
-        cleanups.push(() => {
+        const dispose = (): void => {
           editButton.removeEventListener('click', editMessage)
           retryButton.removeEventListener('click', retryTurn)
           editButton.remove()
@@ -281,10 +395,13 @@ export function InlineMessageEdit({
           else marker.__messageEditInjected = previousMarker
           if (previousEventSeq === undefined) delete marker.__messageEditEventSeq
           else marker.__messageEditEventSeq = previousEventSeq
-        })
+        }
+        binding = { eventSeq, blocks, editButton, retryButton, dispose }
+        bindings.set(row, binding)
       }
     }
 
+    synchronize.current = sync
     sync()
     observer = new MutationObserver(() => {
       if (!alive || scheduled) return
@@ -302,9 +419,14 @@ export function InlineMessageEdit({
       if (frame !== undefined) cancelAnimationFrame(frame)
       observer?.disconnect()
       overlays.dispose()
-      for (const cleanup of cleanups.reverse()) cleanup()
+      for (const binding of bindings.values()) binding.dispose()
+      bindings.clear()
+      if (synchronize.current === sync) synchronize.current = undefined
     }
-  }, [messages, edit, retry])
+  }, [edit, retry, attachmentTools, composerTools])
+
+  // 在浏览器绘制前同步消息与可用状态，不留下看似可点但事件拒绝操作的间隙。
+  useLayoutEffect(() => { synchronize.current?.() }, [messages, disabled])
 
   return null
 }

@@ -1,5 +1,5 @@
 /** Timeline tab: durable version tree plus turn/block edit and retry controls. */
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
@@ -11,6 +11,7 @@ import type {
   VersionSummary,
 } from '../shared.ts'
 import type { MessageEditFace } from './controller.ts'
+import { mountEditor } from './InlineMessageEdit.tsx'
 import styles from './MessageEditTimelineView.module.css'
 
 type MessageEditTimelineViewProps = ConvViewProps & InjectFace<MessageEditFace>
@@ -22,7 +23,6 @@ interface TurnSection {
 
 interface EditingState {
   message: EditableMessageBlock
-  text: string
 }
 
 const BLOCK_LABEL: Record<EditableBlockKind, string> = {
@@ -104,64 +104,22 @@ function VersionRow({ version, disabled, onOpen }: {
   )
 }
 
-function MessageCard({
-  message,
-  editing,
-  disabled,
-  cascade,
-  onBeginEdit,
-  onCancelEdit,
-  onTextChange,
-  onApplyEdit,
-}: {
+function MessageCard({ message, disabled, onBeginEdit }: {
   message: EditableMessageBlock
-  editing: EditingState | null
   disabled: boolean
-  cascade: CascadePolicy
-  onBeginEdit: (message: EditableMessageBlock) => void
-  onCancelEdit: () => void
-  onTextChange: (text: string) => void
-  onApplyEdit: (message: EditableMessageBlock, text: string, cascade: CascadePolicy) => void
+  onBeginEdit(message: EditableMessageBlock): void
 }): ReactNode {
-  const active = editing?.message.key === message.key
   return (
     <article className={styles['messageCard']}>
       <div className={styles['messageHeader']}>
         <span className={styles['kindBadge']} data-kind={message.kind}>{BLOCK_LABEL[message.kind]}</span>
         <span className={styles['messageTime']}>{timeLabel(message.time)}</span>
-        <button
-          type="button"
-          className={styles['textButton']}
-          disabled={disabled}
-          onClick={() => { active ? onCancelEdit() : onBeginEdit(message) }}
-        >
-          {active ? '取消' : '编辑'}
-        </button>
+        <button type="button" className={styles['textButton']} disabled={disabled} onClick={() => onBeginEdit(message)}>编辑</button>
       </div>
-      {active && editing !== null
-        ? (
-          <div className={styles['editor']}>
-            <textarea
-              className={styles['textarea']}
-              value={editing.text}
-              rows={6}
-              autoFocus
-              onChange={(event) => { onTextChange(event.currentTarget.value) }}
-            />
-            <div className={styles['editorActions']}>
-              <span className={styles['editorHint']}>将从该回合之前分支，原版本保持不变。</span>
-              <button
-                type="button"
-                className={styles['primaryButton']}
-                disabled={disabled}
-                onClick={() => { onApplyEdit(message, editing.text, cascade) }}
-              >
-                应用并重生成
-              </button>
-            </div>
-          </div>
-        )
-        : <pre className={styles['messageText']}>{message.text || '（空内容）'}</pre>}
+      {message.attachments?.length ? <p className={styles['messageTime']}>
+        附件：{message.attachments.map(item => item.content.attachment.name ?? '图片附件').join('、')}
+      </p> : null}
+      <pre className={styles['messageText']}>{message.text || '（空正文）'}</pre>
     </article>
   )
 }
@@ -175,11 +133,12 @@ export function MessageEditTimelineView({
   retry,
   reroll,
   openVersion,
+  attachmentTools,
+  composerTools,
 }: MessageEditTimelineViewProps): ReactNode {
   const state = useMessageEdit(value => value)
   const [cascade, setCascade] = useState<CascadePolicy>('truncate')
   const [editing, setEditing] = useState<EditingState | null>(null)
-
   useEffect(() => {
     const release = acquire()
     load()
@@ -200,6 +159,15 @@ export function MessageEditTimelineView({
     })
   }, [timeline])
 
+  const cascadeRef = useRef(cascade)
+  cascadeRef.current = cascade
+  useEffect(() => {
+    if (editing === null) return
+    return mountEditor(editing.message, (message, text, _policy, regenerate, attachments, settings) =>
+      edit(message, text, cascadeRef.current, regenerate, attachments, settings),
+    () => setEditing(null), attachmentTools, composerTools)
+  }, [editing, edit, attachmentTools, composerTools])
+
   if (timeline === null && (state.status === 'idle' || state.status === 'loading')) {
     return <div className={styles['status']}>正在载入消息时间线…</div>
   }
@@ -212,11 +180,6 @@ export function MessageEditTimelineView({
     )
   }
   if (timeline === null) return null
-
-  const applyEdit = (message: EditableMessageBlock, text: string, policy: CascadePolicy): void => {
-    setEditing(null)
-    void edit(message, text, policy)
-  }
 
   return (
     <div className={styles['root']}>
@@ -329,15 +292,8 @@ export function MessageEditTimelineView({
                         <MessageCard
                           key={message.key}
                           message={message}
-                          editing={editing}
                           disabled={busy}
-                          cascade={cascade}
-                          onBeginEdit={value => { setEditing({ message: value, text: value.text }) }}
-                          onCancelEdit={() => { setEditing(null) }}
-                          onTextChange={(text) => {
-                            setEditing(current => current === null ? null : { ...current, text })
-                          }}
-                          onApplyEdit={applyEdit}
+                          onBeginEdit={value => { setEditing({ message: value }) }}
                         />
                       ))}
                     </div>

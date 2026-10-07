@@ -1,0 +1,10 @@
+{
+  "version": "0.3.0",
+  "buildId": "952c32134401a88f10f7",
+  "targetDshVersion": "0.2.0-rc.2",
+  "files": {
+    "index.mjs": "c658a4c4b9976a7a48e8191f07dc8c1e8674fab5dd05a6d32f2b1517d4966f74",
+    "client.js": "1212ccc88592d5b0d6f8050adbad818044ce9189c181dbb9db712a665ce415e7",
+    "client.js.map": "4849f98c7b1f8c82fd1a8933b17ce67a6e9dd7bfb029b821520acbb13b6110a1"
+  }
+}

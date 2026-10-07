@@ -1,20 +1,25 @@
 /** Browser controller for one session's Timeline projection and branch mutations. */
+import type { Context } from '@deepseek-ai/cordis'
 import type {
-  ClientContext,
-  ConversationSnapshot,
   ISessions,
-  ObservableSnapshot,
-  SessionFace,
-  SessionId,
+  SessionEventSource,
+  SessionEventWindow,
   SessionListState,
-  SnapshotStore,
-} from '@deepseek-ai/dsh-client-runtime/client'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+} from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import { createSnapshotStore, type ObservableSnapshot, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
+import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
+import { hostFetch } from './transport.ts'
+import { savedUserMessageSeq } from '../saved-user-messages.ts'
+import { MESSAGE_EDIT_BUILD_INFO } from '../build-info.ts'
+import { attachmentTools, type MessageAttachmentTools } from './attachmentTools.ts'
+import { composerTools, type ComposerSettings, type MessageComposerTools } from './composerTools.ts'
 import {
   MESSAGE_EDIT_PATH,
   type CascadePolicy,
   type EditableBlockKind,
   type EditableMessageBlock,
+  type MessageEditAttachmentInput,
   type MessageEditOperation,
   type MessageEditOperationResult,
   type MessageEditTimeline,
@@ -31,7 +36,7 @@ export interface MessageEditState {
   timeline: MessageEditTimeline | null
 }
 
-/** Merge a burst of turn completions into one refresh. */
+/** 合并回合完成时的后台刷新，不延迟首次加载。 */
 const REFRESH_DELAY_MS = 300
 
 /** Plain business face; the renderer binds the reserved source compartment. */
@@ -39,7 +44,9 @@ export interface MessageEditFace {
   hooks: { messageEdit: ObservableSnapshot<MessageEditState> }
   acquire(): () => void
   load(): void
-  edit(message: EditableMessageBlock, text: string, cascade: CascadePolicy): Promise<boolean>
+  edit(message: EditableMessageBlock, text: string, cascade: CascadePolicy, regenerate?: boolean, attachments?: readonly MessageEditAttachmentInput[], settings?: ComposerSettings): Promise<boolean>
+  attachmentTools: MessageAttachmentTools
+  composerTools: MessageComposerTools
   retry(turn: number, cascade: CascadePolicy): Promise<boolean>
   reroll(): Promise<boolean>
   openVersion(sessionId: string): Promise<void>
@@ -88,6 +95,8 @@ function decodeMessage(value: unknown, index: number): EditableMessageBlock {
     kind: blockKind(row['kind']),
     text: stringValue(row['text'], '消息 text'),
     time: numberValue(row['time'], '消息 time'),
+    ...row['content'] === undefined ? {} : { content: arrayValue(row['content'], '消息 content') as EditableMessageBlock['content'] & {} },
+    ...row['attachments'] === undefined ? {} : { attachments: arrayValue(row['attachments'], '消息 attachments') as EditableMessageBlock['attachments'] & {} },
   }
 }
 
@@ -165,6 +174,8 @@ function decodeOperationResult(value: unknown): MessageEditOperationResult {
   return {
     sessionId: stringValue(data['sessionId'], '操作 sessionId'),
     queuedTurns: numberValue(data['queuedTurns'], '操作 queuedTurns'),
+    ...data['saved'] === undefined ? {} : { saved: booleanValue(data['saved'], '操作 saved') },
+    ...data['unchanged'] === undefined ? {} : { unchanged: booleanValue(data['unchanged'], '操作 unchanged') },
   }
 }
 
@@ -175,11 +186,14 @@ async function responseValue(response: Response): Promise<unknown> {
   throw new Error(typeof error === 'string' ? error : `请求失败：HTTP ${String(response.status)}`)
 }
 
-function conversationRevision(snapshot: ConversationSnapshot): string {
-  const turnEnds = [...snapshot.turnEnds.entries()]
-    .map(([turn, seq]) => `${String(turn)}:${String(seq)}`)
-    .join(',')
-  return [snapshot.openState, snapshot.removed, snapshot.hasMore, turnEnds].join('|')
+function conversationRevision(snapshot: SessionEventWindow): string {
+  const changes = snapshot.entries.flatMap(entry => {
+    if (entry.type !== 'event') return []
+    if (entry.event.type === 'turn/end') return [`turn:${String(entry.event.data.turn)}:${String(entry.event.seq)}`]
+    if (savedUserMessageSeq(entry.event) !== undefined) return [`save:${String(entry.event.seq)}`]
+    return []
+  })
+  return [snapshot.hasMore, changes.join(',')].join('|')
 }
 
 function lineageRevision(snapshot: SessionListState, sessionId: SessionId): string {
@@ -220,16 +234,15 @@ export class MessageEditController {
 
   readonly face: MessageEditFace
   private generation = 0
-  private readonly ctx: ClientContext
+  private readonly ctx: Context
   private readonly sessions: ISessions
-  private sessionSource: SessionFace | undefined
+  private sessionSource: SessionEventSource | undefined
   private sessionSourceDispose: (() => void) | undefined
   private sessionRevision: string | undefined
   private listRevision = ''
   private refreshScheduled = false
   private refreshTimer: ReturnType<typeof setTimeout> | undefined
   private observing = false
-  private readonly navigationWaits = new Set<() => void>()
   private disposeObservation: (() => Promise<void>) | undefined = undefined
   private inflight: Promise<void> | null = null
   private rerunAfter = false
@@ -238,7 +251,7 @@ export class MessageEditController {
   private users = 0
 
   constructor(
-    ctx: ClientContext,
+    ctx: Context,
     private readonly sessionId: SessionId,
   ) {
     this.ctx = ctx
@@ -250,14 +263,30 @@ export class MessageEditController {
         if (this.users === 1 && this.disposed) this.revive()
         return () => this.release()
       },
-      load: () => { void this.load() },
-      edit: (message, text, cascade) => this.mutate({
+      load: () => {
+        const status = this.store.getSnapshot().status
+        if (status === 'idle' || status === 'error') void this.load()
+      },
+      attachmentTools: attachmentTools(ctx, this.sessionId),
+      composerTools: composerTools(ctx, this.sessionId),
+      edit: (message, text, cascade, regenerate = true, attachments, settings) => this.mutate(message.kind === 'user' && !regenerate ? {
+        action: 'save',
+        sessionId: this.sessionId,
+        eventSeq: message.eventSeq,
+        blockIndex: message.blockIndex,
+        text,
+        ...attachments === undefined ? {} : { attachments },
+        ...settings === undefined ? {} : { settings },
+      } : {
         action: 'edit',
         sessionId: this.sessionId,
         eventSeq: message.eventSeq,
         blockIndex: message.blockIndex,
         text,
         cascade,
+        regenerate,
+        ...attachments === undefined ? {} : { attachments },
+        ...settings === undefined ? {} : { settings },
       }),
       retry: (turn, cascade) => this.mutate({
         action: 'retry',
@@ -327,12 +356,11 @@ export class MessageEditController {
       this.sessionSourceDispose = undefined
       this.sessionSource = undefined
       this.sessionRevision = undefined
-      for (const cancel of [...this.navigationWaits]) cancel()
     }
   }
 
   private bindSessionSource(): boolean {
-    const source = this.sessions.binding(this.sessionId)?.session
+    const source = this.sessions.binding(this.sessionId)?.eventSource
     if (source === this.sessionSource) return false
     this.sessionSourceDispose?.()
     this.sessionSource = source
@@ -378,7 +406,8 @@ export class MessageEditController {
     const abort = new AbortController()
     this.abort = abort
     this.store.update((state) => {
-      state.status = 'loading'
+      // 已确认的消息在后台刷新时保持可操作，首次加载及错误恢复仍等待验证。
+      if (state.status !== 'ready') state.status = 'loading'
       state.error = null
     })
     const run = this.performLoad(generation, abort)
@@ -396,13 +425,21 @@ export class MessageEditController {
 
   private async performLoad(generation: number, abort: AbortController): Promise<void> {
     try {
-      const response = await fetch(`${MESSAGE_EDIT_PATH}?sessionId=${encodeURIComponent(this.sessionId)}`, {
+      const response = await hostFetch(`${MESSAGE_EDIT_PATH}?sessionId=${encodeURIComponent(this.sessionId)}`, {
         method: 'GET',
         headers: { accept: 'application/json' },
         cache: 'no-store',
         signal: abort.signal,
       })
-      const timeline = decodeTimeline(await responseValue(response))
+      const value = await responseValue(response)
+      const build = objectValue(value, 'Timeline 响应')['build']
+      if (build !== undefined) {
+        const identity = objectValue(build, '宿主构建')
+        if (identity['version'] !== MESSAGE_EDIT_BUILD_INFO.version || identity['buildId'] !== MESSAGE_EDIT_BUILD_INFO.buildId) {
+          throw new Error('消息编辑插件的前后端版本不一致，请彻底退出 DSH 后重新启动；浏览器页面请刷新。')
+        }
+      }
+      const timeline = decodeTimeline(value)
       if (generation !== this.generation) return
       this.store.update((state) => {
         state.status = 'ready'
@@ -428,11 +465,11 @@ export class MessageEditController {
     const current = this.store.getSnapshot()
     if (current.pending !== null || current.status !== 'ready') return false
     this.store.update((state) => {
-      state.pending = operation.action
+      state.pending = operation.action === 'save' ? 'edit' : operation.action
       state.error = null
     })
     try {
-      const response = await fetch(MESSAGE_EDIT_PATH, {
+      const response = await hostFetch(MESSAGE_EDIT_PATH, {
         method: 'POST',
         headers: {
           accept: 'application/json',
@@ -441,44 +478,38 @@ export class MessageEditController {
         body: JSON.stringify(operation),
       })
       const result = decodeOperationResult(await responseValue(response))
-      if (this.disposed) return true
+      if (result.unchanged === true && (result.sessionId !== this.sessionId || result.queuedTurns !== 0)) {
+        throw new Error('宿主未确认无修改保存，请更新插件并重启 DSH。')
+      }
+      if (operation.action === 'save'
+        && (result.sessionId !== this.sessionId || result.queuedTurns !== 0 || result.saved !== true)) {
+        throw new Error('宿主未确认在当前会话保存，请更新插件并彻底重启 DSH。')
+      }
+      if (!this.disposed && result.unchanged !== true) {
+        if (operation.action === 'save') {
+          // 保存期间保留忙碌状态，并确保刷新不被保存前的在途请求吸收。
+          if (this.inflight !== null) {
+            this.rerunAfter = true
+            await this.load()
+          }
+          await this.load()
+        } else await this.openWhenListed(result.sessionId as SessionId)
+      }
       this.store.update((state) => { state.pending = null })
-      await this.openWhenListed(result.sessionId as SessionId)
       return true
     } catch (error) {
-      if (this.disposed) return false
       this.store.update((state) => {
         state.pending = null
-        state.error = messageOf(error)
+        if (!this.disposed) state.error = messageOf(error)
       })
       return false
     }
   }
 
-  /** Session-list publication is the reactive dependency for navigation. */
-  private openWhenListed(sessionId: SessionId): Promise<void> {
-    if (this.sessions.list.getSnapshot().byId[sessionId] !== undefined) {
-      this.sessions.open(sessionId)
-      return Promise.resolve()
-    }
-    return new Promise((resolve) => {
-      let settled = false
-      let dispose = (): void => {}
-      const finish = (open: boolean): void => {
-        if (settled) return
-        settled = true
-        dispose()
-        this.navigationWaits.delete(cancel)
-        if (open) this.sessions.open(sessionId)
-        resolve()
-      }
-      const cancel = (): void => { finish(false) }
-      this.navigationWaits.add(cancel)
-      dispose = this.sessions.list.subscribe(() => {
-        if (this.sessions.list.getSnapshot().byId[sessionId] === undefined) return
-        finish(true)
-      })
-      if (this.sessions.list.getSnapshot().byId[sessionId] !== undefined) finish(true)
-    })
+  /** 通过新版工作区导航持有会话引用，并同步切换主视图。 */
+  private async openWhenListed(sessionId: SessionId): Promise<void> {
+    if (this.disposed) return
+    await this.sessions.refresh()
+    if (!this.disposed) this.ctx.uiWorkspace.openSession(sessionId)
   }
 }

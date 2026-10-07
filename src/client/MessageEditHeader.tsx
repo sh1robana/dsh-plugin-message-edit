@@ -15,6 +15,8 @@ export function MessageEditHeader({
   reroll,
   edit,
   retry,
+  attachmentTools,
+  composerTools,
 }: MessageEditHeaderProps): ReactNode {
   const state = useMessageEdit(value => value)
 
@@ -34,9 +36,12 @@ export function MessageEditHeader({
   return (
     <>
       <InlineMessageEdit
-        messages={state.status === 'ready' && state.pending === null ? timeline?.messages ?? [] : []}
+        messages={timeline?.messages ?? []}
         edit={edit}
         retry={retry}
+        attachmentTools={attachmentTools}
+        composerTools={composerTools}
+        disabled={busy}
       />
       <div className={styles['root']}>
         <button

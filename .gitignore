@@ -1,3 +1,10 @@
 .dsh/
 dist/
 node_modules/
+.inspection/
+.local-backups/
+artifacts/
+/开源准备.md
+/市场调查.md
+/优化与验收记录.md
+/竞品对照与发布建议.md

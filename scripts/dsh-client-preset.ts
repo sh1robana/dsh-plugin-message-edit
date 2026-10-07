@@ -38,9 +38,7 @@ const VENDORED_LIBRARY = /^@deepseek-ai\/(cosmokit|schemastery)(\/|$)/
 const GENERATED_REMOTE = /^@deepseek-ai\/dsh-[a-z0-9]+(?:-[a-z0-9]+)*\/remote$/
 
 /**
- * Mirrors `PLATFORM_MODULES` from @deepseek-ai/dsh-client-web (verified
- * identical in 0.0.1-rc.5 and 0.1.0-rc.6): the module specifiers the shell
- * seeds into the frozen module table.
+ * 对应桌面端 0.2.0-rc.2 内置前端静态模块表，外部依赖复用宿主实例。
  */
 export const PLATFORM_MODULES: readonly string[] = [
   'react',
@@ -48,23 +46,14 @@ export const PLATFORM_MODULES: readonly string[] = [
   'react-dom',
   'react-dom/client',
   '@deepseek-ai/cordis',
+  '@deepseek-ai/dsh-client-store',
   '@deepseek-ai/dsh-client-ui-slots',
-  '@deepseek-ai/dsh-client-web-react',
   '@deepseek-ai/dsh-client-ui-primitives',
-  '@deepseek-ai/dsh-client-ui-attachment',
-  '@deepseek-ai/dsh-client-schema-form',
+  '@deepseek-ai/dsh-client-ui-dockkit',
 ]
 
-/**
- * The snapshot-store engine (createSnapshotStore/defineStore/shallowEqual)
- * lives in runtime pending its promotion-time rehoming; at runtime the lazy
- * CJS table answers the require natively because runtime is an immediately-tier
- * row registered before any dependent bundle materializes.
- */
-const RUNTIME_STORE_EXEMPTION = '@deepseek-ai/dsh-client-runtime/client'
-
 /** Externals resolved from the loader module table. */
-export const CLIENT_EXTERNALS: readonly string[] = [...PLATFORM_MODULES, RUNTIME_STORE_EXEMPTION]
+export const CLIENT_EXTERNALS: readonly string[] = [...PLATFORM_MODULES]
 
 /** Resolve an emitted JS asset import against its source-tree counterpart. */
 function sourceAssetPath(source: string, importer: string): string {
