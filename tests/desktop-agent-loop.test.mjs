@@ -2,7 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { win32 as windowsPath } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
-import Sessions from '@deepseek-ai/dsh-session'
+import Sessions, { KNOWN_SESSION_EVENT_TYPES } from '@deepseek-ai/dsh-session'
+import { restoreReleasedV4Artifact } from '@deepseek-ai/dsh-session-format-v3-to-v4'
 import Projections from '@deepseek-ai/dsh-session-projection'
 import Agents from '@deepseek-ai/dsh-agent'
 import Loop from '@deepseek-ai/dsh-agent-loop'
@@ -296,6 +297,78 @@ test('真实 DSH 当前目录投影：分支保留原工作区和目录变更，
     assert.deepEqual(opened, ['E:\\当前目录\\资料\\说明.txt'])
     assert.deepEqual(source.snapshotEvents(), original)
     assert.equal(child.status, 'idle')
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
+
+test('真实 DSH 首回合助手编辑后继续请求：首个系统节点受保护，落盘记录可通过完整 V4 恢复校验', { timeout: 5000 }, async () => {
+  const ctx = new Context()
+  new Projections(ctx)
+  new Sessions(ctx)
+  new Agents(ctx)
+  new Llm(ctx)
+  new Prompt(ctx, { includeHarnessIdentity: false, includeRuntimeContext: false, personaPrefix: '固定测试系统提示' })
+  new Tools(ctx)
+  new Loop(ctx, { agents: [], maxParallelToolCalls: 10 })
+  const records = memoryPersistence(ctx)
+  let calls = 0
+  class TestAdapter extends LlmAdapter {
+    async *stream() {
+      calls += 1
+      yield { type: 'block-start', index: 0, blockType: 'text' }
+      yield { type: 'text-delta', index: 0, text: '测试回复' }
+      yield { type: 'block-end', index: 0, block: { type: 'text', text: '测试回复' } }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+    }
+  }
+  ctx.llm.registerAdapter(['test'], new TestAdapter())
+  let route
+  ctx.provide('connection', { fetch: { register: value => { route = value } } })
+  ctx.provide('workspaceRegistry', { list: () => [] })
+  ctx.provide('sessionQuery', { readSession: async id => {
+    const session = ctx.sessions.get(id)
+    return { session: session.header, inheritedEventCount: session.inheritedEventCount, events: session.snapshotEvents() }
+  } })
+  const user = text => ({ id: crypto.randomUUID(), role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' } })
+  const settled = async (agent, count) => {
+    const deadline = Date.now() + 2000
+    while (Date.now() < deadline && (calls < count || agent.status !== 'idle')) await new Promise(resolve => setTimeout(resolve, 10))
+    assert.equal(calls, count)
+    assert.equal(agent.status, 'idle')
+  }
+  const validate = id => {
+    const record = records.get(id)
+    // JSONL 的物理头会把普通会话的缺省委派深度规范化为 0。
+    const header = { ...record.session, delegationDepth: record.session.delegationDepth ?? 0 }
+    restoreReleasedV4Artifact({ header, inheritedEventCount: record.inheritedEventCount, events: record.events }, KNOWN_SESSION_EVENT_TYPES)
+  }
+  try {
+    const handle = await ctx.agents.create({ sessionId: 'source', agentOptions: { provider: 'test', model: 'test' } })
+    handle.agent.followup(user('首个问题'))
+    await settled(handle.agent, 1)
+    assert.doesNotThrow(() => validate('source'))
+    const source = handle.agent.session
+    const original = structuredClone(source.snapshotEvents())
+    const assistant = original.find(event => event.type === 'assistant/message')
+    apply(ctx)
+    const response = await route.fetch(new Request(`http://localhost${MESSAGE_EDIT_PATH}`, { method: 'POST', body: JSON.stringify({
+      action: 'edit', sessionId: source.id, eventSeq: assistant.seq, blockIndex: 0, text: '修改后的首个回复', cascade: 'truncate',
+    }) }))
+    const result = await response.json()
+    assert.equal(response.status, 200, JSON.stringify(result))
+    const child = ctx.agents.get(result.sessionId)
+    assert.equal(calls, 1)
+    assert.doesNotThrow(() => validate(child.id))
+    child.followup(user('继续提问'))
+    await settled(child, 2)
+    assert.doesNotThrow(() => validate(child.id))
+    assert.deepEqual(source.snapshotEvents(), original)
+    const firstSurface = child.session.snapshotEvents().find(event => event.surfaceOp !== undefined)
+    assert.equal(firstSurface.type, 'system/message')
+    assert.deepEqual(firstSurface.data.message.content, [])
+    assert.equal(child.session.deriveMessages().find(message => message.role === 'system').content[0].text, '固定测试系统提示')
+    assert.equal(child.session.deriveMessages().find(message => message.role === 'assistant').content[0].text, '修改后的首个回复')
   } finally {
     await ctx.fiber.dispose()
   }

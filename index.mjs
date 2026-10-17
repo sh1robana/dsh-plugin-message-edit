@@ -1,5 +1,6 @@
 import { isAbsolute } from "node:path";
 import { foldSurface } from "@deepseek-ai/dsh-session";
+import { createSystemMessage } from "@deepseek-ai/dsh-llm";
 //#region src/saved-user-messages.ts
 function savedUserMessageSeq(event) {
 	if (event.type !== "user/message" || typeof event.surfaceOp !== "object" || event.surfaceOp.op !== "replace") return void 0;
@@ -33,9 +34,9 @@ function visibleUserEvents(events) {
 //#region src/build-info.ts
 /** 由构建脚本生成；前后端共享同一份构建身份。 */
 const MESSAGE_EDIT_BUILD_INFO = Object.freeze({
-	"version": "0.3.1",
-	"buildId": "647a97f515a9d270036c",
-	"targetDshVersion": "0.2.1-rc.1"
+	"version": "0.3.2",
+	"buildId": "dd2956d22ba2bccbd0c2",
+	"targetDshVersion": "0.2.1-rc.2"
 });
 //#endregion
 //#region src/shared.ts
@@ -430,14 +431,19 @@ function appendSurfaceSeedEvent(events, type, data, intent) {
 		...intent.sourceEventSeqs === void 0 ? {} : { sourceEventSeqs: intent.sourceEventSeqs }
 	});
 }
-function appendManualTurn(events, manual) {
+function appendManualTurn(events, manual, reserveSystemHead) {
 	const { turn, user, assistant } = manual;
 	appendLogSeedEvent(events, "turn/start", { turn });
-	appendSurfaceSeedEvent(events, "user/message", user, { surfaceOp: "append" });
 	appendLogSeedEvent(events, "step/start", {
 		turn,
 		step: 1
 	});
+	if (reserveSystemHead) appendSurfaceSeedEvent(events, "system/message", {
+		turn,
+		step: 1,
+		message: createSystemMessage("")
+	}, { surfaceOp: "append" });
+	appendSurfaceSeedEvent(events, "user/message", user, { surfaceOp: "append" });
 	appendSurfaceSeedEvent(events, "assistant/message", {
 		turn,
 		step: 1,
@@ -493,7 +499,7 @@ function versionSeed(source, plan, projections) {
 		});
 	}
 	appendLogSeedEvent(events, "message-edit/version", plan.version);
-	if (plan.manualTurn !== void 0) appendManualTurn(events, plan.manualTurn);
+	if (plan.manualTurn !== void 0) appendManualTurn(events, plan.manualTurn, foldSurface(events, projections).nodes.length === 0);
 	return {
 		events,
 		inheritedLength
@@ -912,16 +918,19 @@ async function mapConcurrent(items, worker) {
 	return results;
 }
 async function timeline(ctx, sessionId) {
+	const currentLog = await ctx.sessionQuery.readSession(sessionId);
 	const targetTrace = await ctx.sessionQuery.traceSession(sessionId);
 	const rootId = targetTrace.complete ? targetTrace.root.header.id : targetTrace.ancestors.at(-1)?.header.id ?? sessionId;
 	const rootTrace = rootId === sessionId ? targetTrace : await ctx.sessionQuery.traceSession(rootId);
 	const lineage = flattenLineage(rootTrace.target, rootTrace.descendants);
-	const logs = await mapConcurrent(lineage, async ({ record }) => {
-		if (record.header.id !== sessionId && record.header.parentSession === void 0) return {
-			events: [],
-			inheritedEventCount: 0
-		};
-		return ctx.sessionQuery.readSession(record.header.id);
+	const inspections = await mapConcurrent(lineage, async ({ record }) => {
+		if (record.header.id === sessionId) return { version: ownVersionEvent(record.header, currentLog.events, currentLog.inheritedEventCount) };
+		try {
+			const log = await ctx.sessionQuery.readSession(record.header.id);
+			return { version: ownVersionEvent(record.header, log.events, log.inheritedEventCount) };
+		} catch (error) {
+			return { unavailableReason: error instanceof Error ? error.message : String(error) };
+		}
 	});
 	const recordsById = new Map(lineage.map(({ record }) => [record.header.id, record]));
 	const currentPath = /* @__PURE__ */ new Set();
@@ -931,8 +940,8 @@ async function timeline(ctx, sessionId) {
 		pathId = recordsById.get(pathId)?.header.parentSession;
 	}
 	const versions = lineage.map(({ record, depth }, index) => {
-		const log = logs[index];
-		const version = ownVersionEvent(record.header, log?.events ?? [], log?.inheritedEventCount ?? 0);
+		const inspection = inspections[index];
+		const version = inspection?.version;
 		return {
 			sessionId: record.header.id,
 			...record.header.parentSession === void 0 ? {} : { parentSessionId: record.header.parentSession },
@@ -944,6 +953,7 @@ async function timeline(ctx, sessionId) {
 			depth,
 			current: record.header.id === sessionId,
 			onCurrentEffectPath: currentPath.has(record.header.id),
+			...inspection?.unavailableReason === void 0 ? {} : { unavailableReason: inspection.unavailableReason },
 			...version === void 0 ? {} : {
 				operation: version.effect.operation,
 				cascade: version.effect.cascade,
@@ -967,13 +977,12 @@ async function timeline(ctx, sessionId) {
 		const inverseId = undoCursor.inverseSessionId;
 		if (undoStack.includes(inverseId)) throw new Error("版本效果逆链包含循环。");
 		if (!versionsById.has(inverseId)) throw new Error(`恢复目标 ${inverseId} 不在可见版本树中。`);
+		if (versionsById.get(inverseId)?.unavailableReason !== void 0) break;
 		undoStack.push(inverseId);
 		undoCursor = versionsById.get(inverseId);
 	}
-	const redoSessionIds = versions.filter((version) => version.inverseSessionId === sessionId).map((version) => version.sessionId);
-	const currentIndex = versions.findIndex((version) => version.current);
-	const currentLog = logs[currentIndex];
-	if (currentIndex < 0 || currentLog === void 0) throw new Error("当前版本不在版本树中。");
+	const redoSessionIds = versions.filter((version) => version.inverseSessionId === sessionId && version.unavailableReason === void 0).map((version) => version.sessionId);
+	if (versions.findIndex((version) => version.current) < 0) throw new Error("当前版本不在版本树中。");
 	const turns = closedTurns(visibleUserEvents(currentLog.events));
 	return {
 		sessionId,

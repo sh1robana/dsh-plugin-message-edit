@@ -7,6 +7,32 @@ import * as jsx from 'react/jsx-runtime'
 import * as stores from '@deepseek-ai/dsh-client-store'
 import { Context, Service } from '@deepseek-ai/cordis'
 import { renderToStaticMarkup } from 'react-dom/server'
+import ts from 'typescript'
+
+function sourceClient(globals, react = React) {
+  const cache = new Map()
+  const load = url => {
+    if (url.pathname.endsWith('.css')) return { default: {} }
+    if (cache.has(url.href)) return cache.get(url.href)
+    const source = readFileSync(url, 'utf8')
+    const { outputText } = ts.transpileModule(source, { compilerOptions: {
+      module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2024, jsx: ts.JsxEmit.ReactJSX,
+    } })
+    const module = { exports: {} }
+    cache.set(url.href, module.exports)
+    runInNewContext(outputText, { ...globals, module, exports: module.exports,
+      require: name => {
+        if (name === 'react') return react
+        if (name === 'react/jsx-runtime') return jsx
+        if (name === '@deepseek-ai/dsh-client-store') return stores
+        assert.ok(name.startsWith('.'), `源码测试遇到未知运行时依赖：${name}`)
+        return load(new URL(name, url))
+      },
+    })
+    return module.exports
+  }
+  return load(new URL('../src/client/index.ts', import.meta.url))
+}
 
 function fixture(desktop, overrides = {}) {
   const requests = []
@@ -67,7 +93,11 @@ function fixture(desktop, overrides = {}) {
       plugin.apply(ctx)
     } } },
   }
-  runInNewContext(readFileSync(new URL('../client.js', import.meta.url), 'utf8'), globals)
+  if (overrides.fromSource === true) globals.window.__ModuleLoader__.load({
+    id: JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).name,
+    factory: () => sourceClient(globals, overrides.react),
+  })
+  else runInNewContext(readFileSync(new URL('../client.js', import.meta.url), 'utf8'), globals)
   const face = rows[0].entry.inject('source')
   return { rows, face, requests, navigations, listeners, events, timeline, clientPlugin, globals,
     reset: () => { for (const listener of resetListeners) listener() }, refreshCount: () => refreshCount }
@@ -280,6 +310,158 @@ test('Timeline 和标题栏组件可以使用新版插槽属性渲染', async ()
     }
   } finally {
     release()
+  }
+})
+
+test('消息标题栏显示加载失败而不泄露完整错误，只有点击重新载入才重试并恢复原有按钮', async () => {
+  let reads = 0
+  const error = 'stored session "session-test" is corrupt: C:/private/session.jsonl SessionFormatError'
+  const f = fixture(true, { fromSource: true, getResponse: () => ++reads === 1
+    ? Response.json({ error }, { status: 500 }) : Response.json(f.timeline) })
+  const effects = []
+  let previousDependencies
+  const module = { exports: {} }
+  const source = readFileSync(new URL('../src/client/MessageEditHeader.tsx', import.meta.url), 'utf8')
+  const { outputText } = ts.transpileModule(source, { compilerOptions: {
+    module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2024, jsx: ts.JsxEmit.ReactJSX,
+  } })
+  runInNewContext(outputText, {
+    module, exports: module.exports,
+    require: name => {
+      if (name === 'react/jsx-runtime') return jsx
+      if (name === 'react') return { ...React, useEffect: (callback, dependencies) => {
+        if (previousDependencies === undefined || dependencies.some((value, index) => value !== previousDependencies[index])) effects.push(callback)
+        previousDependencies = dependencies
+      } }
+      if (name === './InlineMessageEdit.tsx') return { InlineMessageEdit: () => null }
+      assert.equal(name, './MessageEditHeader.module.css')
+      return { default: {} }
+    },
+  })
+  const Header = module.exports.MessageEditHeader
+  const render = () => Header({ ...f.face, useMessageEdit: selector => selector(f.face.hooks.messageEdit.getSnapshot()) })
+  const markup = tree => renderToStaticMarkup(tree)
+  const waitForStatus = async status => {
+    for (let index = 0; index < 20; index += 1) {
+      await new Promise(resolve => setImmediate(resolve))
+      if (f.face.hooks.messageEdit.getSnapshot().status === status) return
+    }
+    assert.fail(`未进入 ${status}：${JSON.stringify(f.face.hooks.messageEdit.getSnapshot())}`)
+  }
+  assert.match(markup(render()), /正在载入…/)
+  const cleanup = effects.shift()()
+  try {
+    await waitForStatus('error')
+    const failed = render()
+    assert.match(markup(failed), /role="alert">消息加载失败/)
+    const headerCss = readFileSync(new URL('../src/client/MessageEditHeader.module.css', import.meta.url), 'utf8')
+    assert.match(headerCss, /\.counter:not\(\[role='alert'\]\)\s*\{\s*display: none/)
+    const alertRule = /\.counter\[role='alert'\]\s*\{([^}]+)\}/.exec(headerCss)
+    assert.ok(alertRule)
+    assert.match(alertRule[1], /color: var\(--dsw-alias-state-error-primary\)/)
+    assert.match(alertRule[1], /font-size: 13px/)
+    assert.match(alertRule[1], /line-height: 20px/)
+    assert.match(markup(failed), /重新载入/)
+    assert.doesNotMatch(markup(failed), /private|SessionFormatError|session-test/)
+    assert.equal(f.face.hooks.messageEdit.getSnapshot().error, error, '完整错误仍保留给 Timeline')
+    const Timeline = f.rows.find(row => row.entry.name === 'conversation.view').component
+    const timelineHtml = renderToStaticMarkup(React.createElement(Timeline, {
+      ...f.face, useMessageEdit: selector => selector(f.face.hooks.messageEdit.getSnapshot()),
+    }))
+    assert.match(timelineHtml, /private\/session\.jsonl SessionFormatError/)
+    render()
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(reads, 1)
+    assert.equal(effects.length, 0, '错误渲染不能启动自动重试循环')
+    const retry = failed.props.children[1].props.children.find(child => child?.props?.['aria-label'] === '重新载入消息时间线')
+    assert.equal(retry.props.disabled, undefined)
+    retry.props.onClick()
+    assert.match(markup(render()), /正在载入…/)
+    await waitForStatus('ready')
+    const recovered = render()
+    assert.equal(reads, 2)
+    assert.doesNotMatch(markup(recovered), /消息加载失败|重新载入|正在载入/)
+    assert.match(markup(recovered), /效果 —/)
+    const reroll = recovered.props.children[1].props.children.at(-1)
+    assert.equal(reroll.props.children, '重生成')
+    assert.equal(reroll.props.disabled, false)
+  } finally { cleanup() }
+})
+
+test('Timeline 解码并保留不可读版本，显示具体原因且禁止打开，正常版本仍可导航', async () => {
+  const f = fixture(true, { fromSource: true, react: { ...React,
+    useEffect() {}, useMemo: factory => factory(), useState: initial => [initial, () => {}], useRef: current => ({ current }),
+  } })
+  const reason = 'system/message requires a protected first surface head；无法读取分支日志。'
+  const base = { createdAt: 1, depth: 0, current: false, onCurrentEffectPath: false }
+  f.timeline.versions.push(
+    { ...base, sessionId: 'source', current: true },
+    { ...base, sessionId: 'readable', parentSessionId: 'source', depth: 1 },
+    { ...base, sessionId: 'unreadable', parentSessionId: 'source', depth: 1, unavailableReason: reason },
+  )
+  f.timeline.messages.push({ key: '3:0', turn: 1, eventSeq: 3, blockIndex: 0, kind: 'user', text: '当前会话正文', time: 1 })
+  f.timeline.retryableTurns.push({ turn: 1, userEventSeq: 3, preview: '当前会话正文', time: 1 })
+  const release = f.face.acquire()
+  try {
+    await ready(f.face)
+    const decoded = f.face.hooks.messageEdit.getSnapshot().timeline
+    assert.equal(decoded.messages[0].text, '当前会话正文')
+    assert.equal(decoded.versions.length, 3)
+    assert.equal(decoded.versions[2].unavailableReason, reason)
+    assert.equal(Object.hasOwn(decoded.versions[1], 'unavailableReason'), false, '旧响应缺少新字段仍保持可读')
+    const Timeline = f.rows.find(row => row.entry.name === 'conversation.view').component
+    const opened = []
+    const view = Timeline({ ...f.face,
+      useMessageEdit: selector => selector(f.face.hooks.messageEdit.getSnapshot()),
+      openVersion: id => opened.push(id),
+    })
+    const html = renderToStaticMarkup(view)
+    assert.match(html, /无法读取/)
+    assert.ok(html.includes(reason))
+    assert.match(html, /当前会话正文/)
+    const descendants = node => !React.isValidElement(node) ? []
+      : [node, ...React.Children.toArray(node.props.children).flatMap(descendants)]
+    const rows = descendants(view).filter(element => element.props.version !== undefined)
+    assert.equal(rows.length, 3, '不可读版本不能静默隐藏')
+    const buttonFor = id => {
+      const row = rows.find(element => element.props.version.sessionId === id)
+      return row.type(row.props).props.children
+    }
+    const unavailable = buttonFor('unreadable')
+    assert.equal(unavailable.props.disabled, true)
+    assert.equal(unavailable.props['data-unavailable'], true)
+    const unavailableHtml = renderToStaticMarkup(unavailable)
+    assert.match(unavailableHtml, /历史版本/)
+    assert.match(unavailableHtml, /无法读取/)
+    assert.doesNotMatch(unavailableHtml, /外部分支/)
+    unavailable.props.onClick()
+    assert.deepEqual(opened, [])
+    const readable = buttonFor('readable')
+    assert.equal(readable.props.disabled, false)
+    assert.match(renderToStaticMarkup(readable), /外部分支/)
+    readable.props.onClick()
+    assert.deepEqual(opened, ['readable'])
+    assert.equal(buttonFor('source').props.disabled, true)
+  } finally { release() }
+})
+
+test('版本不可读原因必须是字符串，协议错误仍保留完整失败而不降为空时间线', async () => {
+  for (const unavailableReason of [null, 7]) {
+    const f = fixture(true, { fromSource: true })
+    f.timeline.versions.push({ sessionId: 'bad', createdAt: 1, depth: 1, current: false, onCurrentEffectPath: false, unavailableReason })
+    const release = f.face.acquire()
+    try {
+      f.face.load()
+      for (let index = 0; index < 20 && f.face.hooks.messageEdit.getSnapshot().status === 'loading'; index += 1) {
+        await new Promise(resolve => setImmediate(resolve))
+      }
+      const state = f.face.hooks.messageEdit.getSnapshot()
+      assert.equal(state.status, 'error')
+      assert.equal(state.timeline, null)
+      assert.match(state.error, /版本 unavailableReason 不是字符串/)
+      assert.equal(await f.face.edit({ kind: 'user', eventSeq: 3, blockIndex: 0 }, '禁止修改', 'truncate', false), false)
+      assert.equal(f.requests.some(request => request.method === 'POST'), false)
+    } finally { release() }
   }
 })
 

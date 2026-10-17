@@ -145,6 +145,7 @@ function decodeVersion(value: unknown, index: number): VersionSummary {
     ...kind === undefined ? {} : { blockKind: kind },
     ...row['before'] === undefined ? {} : { before: stringValue(row['before'], '版本 before') },
     ...row['after'] === undefined ? {} : { after: stringValue(row['after'], '版本 after') },
+    ...row['unavailableReason'] === undefined ? {} : { unavailableReason: stringValue(row['unavailableReason'], '版本 unavailableReason') },
   }
 }
 

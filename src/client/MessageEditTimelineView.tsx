@@ -63,17 +63,19 @@ function VersionRow({ version, disabled, onOpen }: {
   onOpen: (sessionId: string) => void
 }): ReactNode {
   const depthStyle = { '--message-edit-depth': String(version.depth) } as CSSProperties
-  const operation = version.operation === undefined
-    ? version.parentSessionId === undefined ? '原始版本' : '外部分支'
-    : OPERATION_LABEL[version.operation]
+  const operation = version.unavailableReason !== undefined ? '历史版本'
+    : version.operation === undefined
+      ? version.parentSessionId === undefined ? '原始版本' : '外部分支'
+      : OPERATION_LABEL[version.operation]
   return (
     <li className={styles['versionItem']} style={depthStyle}>
       <button
         type="button"
         className={styles['versionButton']}
         data-current={version.current || undefined}
-        disabled={version.current || disabled}
-        onClick={() => { onOpen(version.sessionId) }}
+        data-unavailable={version.unavailableReason === undefined ? undefined : true}
+        disabled={version.current || disabled || version.unavailableReason !== undefined}
+        onClick={() => { if (version.unavailableReason === undefined) onOpen(version.sessionId) }}
       >
         <span className={styles['versionLine']} aria-hidden />
         <span className={styles['versionDot']} aria-hidden />
@@ -85,6 +87,8 @@ function VersionRow({ version, disabled, onOpen }: {
           <span className={styles['versionMeta']}>
             {timeLabel(version.createdAt)} · {version.sessionId.slice(0, 12)}
           </span>
+          {version.unavailableReason === undefined ? null
+            : <span className={styles['versionUnavailable']}>{version.unavailableReason}</span>}
           {version.before === undefined && version.after === undefined
             ? null
             : (
@@ -94,11 +98,13 @@ function VersionRow({ version, disabled, onOpen }: {
               </span>
             )}
         </span>
-        {version.current
-          ? <span className={styles['currentBadge']}>当前</span>
-          : version.onCurrentEffectPath
-            ? <span className={styles['pathBadge']}>链上</span>
-            : null}
+        {version.unavailableReason !== undefined
+          ? <span className={styles['unavailableBadge']}>无法读取</span>
+          : version.current
+            ? <span className={styles['currentBadge']}>当前</span>
+            : version.onCurrentEffectPath
+              ? <span className={styles['pathBadge']}>链上</span>
+              : null}
       </button>
     </li>
   )

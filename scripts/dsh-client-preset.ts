@@ -12,7 +12,7 @@
  */
 import { readFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
-import { basename, dirname, resolve as resolvePath, sep } from 'node:path'
+import { basename, dirname, relative, resolve as resolvePath, sep } from 'node:path'
 import type { UserConfig } from 'tsdown'
 import { transform } from 'lightningcss'
 
@@ -38,7 +38,7 @@ const VENDORED_LIBRARY = /^@deepseek-ai\/(cosmokit|schemastery)(\/|$)/
 const GENERATED_REMOTE = /^@deepseek-ai\/dsh-[a-z0-9]+(?:-[a-z0-9]+)*\/remote$/
 
 /**
- * 对应桌面端 0.2.1-rc.1 内置前端静态模块表，外部依赖复用宿主实例。
+ * 对应桌面端 0.2.1-rc.1、0.2.1-rc.2 内置前端静态模块表，外部依赖复用宿主实例。
  */
 export const PLATFORM_MODULES: readonly string[] = [
   'react',
@@ -74,6 +74,7 @@ function sourceAssetPath(source: string, importer: string): string {
  * @param options - overrides applied after the preset defaults.
  */
 export function clientBundle(id: string, options: UserConfig = {}): UserConfig {
+  const projectRoot = process.cwd()
   return {
     name: `${id}/client`,
     entry: { client: 'src/client/index.ts' },
@@ -123,11 +124,12 @@ export function clientBundle(id: string, options: UserConfig = {}): UserConfig {
       resolveId(source: string, importer: string | undefined) {
         if (!source.endsWith('.module.css')) return null
         const abs = importer !== undefined ? sourceAssetPath(source, importer) : source
-        return CSS_VIRTUAL_PREFIX + abs + CSS_VIRTUAL_SUFFIX
+        // 虚拟模块名称会进入发行注释，只保留项目相对路径。
+        return CSS_VIRTUAL_PREFIX + relative(projectRoot, resolvePath(abs)).replaceAll('\\', '/') + CSS_VIRTUAL_SUFFIX
       },
       async load(virtualId: string) {
         if (!virtualId.startsWith(CSS_VIRTUAL_PREFIX)) return null
-        const fileId = virtualId.slice(CSS_VIRTUAL_PREFIX.length, -CSS_VIRTUAL_SUFFIX.length)
+        const fileId = resolvePath(projectRoot, virtualId.slice(CSS_VIRTUAL_PREFIX.length, -CSS_VIRTUAL_SUFFIX.length))
         // The virtual id otherwise hides the physical stylesheet from Rolldown's watch graph.
         this.addWatchFile(fileId)
         const source = await readFile(fileId)

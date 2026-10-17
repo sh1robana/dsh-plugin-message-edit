@@ -5,6 +5,7 @@ import { Context } from '@deepseek-ai/cordis'
 import Sessions from '@deepseek-ai/dsh-session'
 import Projections from '@deepseek-ai/dsh-session-projection'
 import { validateStoredEvents } from '@deepseek-ai/dsh-session-persistence'
+import { SessionQueryError } from '@deepseek-ai/dsh-session-query'
 import { apply, MESSAGE_EDIT_PATH, MESSAGE_EDIT_BUILD_INFO } from '../index.mjs'
 
 function fixture(userContents = []) {
@@ -990,3 +991,51 @@ test('冷助手回复未改时不恢复 Agent，也不创建任何版本', async
   assert.equal(f.children.length, 0);
   assert.deepEqual((await f.ctx.sessionQuery.readSession('source')).events, before);
 });
+
+test('坏旁支保留不可用原因，不阻断当前消息或正常分支；当前坏版本仍报错', async () => {
+  const f = fixture()
+  const block = (await f.timeline('source')).messages.find(message => message.kind === 'assistant.response')
+  const edit = text => f.request({ action: 'edit', sessionId: 'source', eventSeq: block.eventSeq, blockIndex: block.blockIndex, text, cascade: 'truncate' })
+  const bad = await edit('坏旁支')
+  const healthy = await edit('正常旁支')
+  const readSession = f.ctx.sessionQuery.readSession
+  const reason = 'stored session is corrupt: system/message requires a protected first surface head'
+  f.ctx.sessionQuery.readSession = async id => {
+    if (id === bad.sessionId) throw new SessionQueryError(reason, 'SESSION_QUERY_CORRUPT_SESSION')
+    return readSession(id)
+  }
+  const original = structuredClone(f.source.snapshotEvents())
+  const view = await f.timeline('source')
+  assert.equal(view.messages.find(message => message.kind === 'user').text, '用户输入 1')
+  assert.equal(view.versions.length, 3)
+  assert.equal(view.versions.find(version => version.sessionId === bad.sessionId).unavailableReason, reason)
+  assert.deepEqual(view.redoSessionIds, [healthy.sessionId])
+  const childView = await f.timeline(healthy.sessionId)
+  assert.deepEqual(childView.undoStack, ['source'])
+  assert.equal(childView.messages.find(message => message.kind === 'assistant.response').text, '正常旁支')
+  const response = await f.route.fetch(new Request(`http://localhost${MESSAGE_EDIT_PATH}?sessionId=${bad.sessionId}`))
+  assert.equal(response.status, 409)
+  const failure = await response.json()
+  assert.equal(failure.error, reason)
+  assert.equal(failure.messages, undefined)
+  assert.deepEqual(f.source.snapshotEvents(), original)
+  assert.deepEqual(f.followups, [])
+})
+
+test('祖先版本不可读时保留版本节点，但撤销不会指向该祖先', async () => {
+  const f = fixture()
+  const block = (await f.timeline('source')).messages.find(message => message.kind === 'assistant.response')
+  const result = await f.request({ action: 'edit', sessionId: 'source', eventSeq: block.eventSeq, blockIndex: block.blockIndex,
+    text: '当前分支内容', cascade: 'truncate' })
+  const readSession = f.ctx.sessionQuery.readSession
+  f.ctx.sessionQuery.readSession = async id => {
+    if (id === 'source') throw new SessionQueryError('祖先日志损坏', 'SESSION_QUERY_CORRUPT_SESSION')
+    return readSession(id)
+  }
+  const view = await f.timeline(result.sessionId)
+  assert.equal(view.versions.length, 2)
+  assert.equal(view.versions.find(version => version.sessionId === 'source').unavailableReason, '祖先日志损坏')
+  assert.deepEqual(view.undoStack, [])
+  assert.deepEqual(view.redoSessionIds, [])
+  assert.equal(view.messages.find(message => message.kind === 'assistant.response').text, '当前分支内容')
+})

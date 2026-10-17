@@ -28,6 +28,7 @@ import type {
   ContentBlock,
   UserMessage,
 } from '@deepseek-ai/dsh-llm'
+import { createSystemMessage } from '@deepseek-ai/dsh-llm'
 import type { Workspace } from '@deepseek-ai/dsh-workspace'
 import { savedUserMessages, savedUserMessageSeq, visibleUserEvents, type SavedUserMessageSource } from './saved-user-messages.ts'
 import { MESSAGE_EDIT_BUILD_INFO } from './build-info.ts'
@@ -583,11 +584,15 @@ function appendSurfaceSeedEvent<T extends SurfaceEventType>(
   } as unknown as SessionEvent<T>)
 }
 
-function appendManualTurn(events: SessionEvent[], manual: ManualAssistantTurn): void {
+function appendManualTurn(events: SessionEvent[], manual: ManualAssistantTurn, reserveSystemHead: boolean): void {
   const { turn, user, assistant } = manual
   appendLogSeedEvent(events, 'turn/start', { turn })
-  appendSurfaceSeedEvent(events, 'user/message', user, { surfaceOp: 'append' })
   appendLogSeedEvent(events, 'step/start', { turn, step: 1 })
+  // 首个手工回合也预留系统首节点，后续真实请求才能安全更新系统提示。
+  if (reserveSystemHead) appendSurfaceSeedEvent(events, 'system/message', {
+    turn, step: 1, message: createSystemMessage(''),
+  }, { surfaceOp: 'append' })
+  appendSurfaceSeedEvent(events, 'user/message', user, { surfaceOp: 'append' })
   appendSurfaceSeedEvent(events, 'assistant/message', { turn, step: 1, message: assistant, stream: [] }, {
     surfaceOp: 'append',
   })
@@ -629,7 +634,7 @@ function versionSeed(source: readonly SessionEvent[], plan: OperationPlan, proje
     })
   }
   appendLogSeedEvent(events, 'message-edit/version', plan.version)
-  if (plan.manualTurn !== undefined) appendManualTurn(events, plan.manualTurn)
+  if (plan.manualTurn !== undefined) appendManualTurn(events, plan.manualTurn, foldSurface(events, projections).nodes.length === 0)
   return { events, inheritedLength }
 }
 
@@ -1099,17 +1104,24 @@ async function mapConcurrent<T, R>(
 }
 
 async function timeline(ctx: Context, sessionId: SessionId): Promise<MessageEditTimeline> {
+  // 当前会话必须完整读取；它损坏时不能用其他分支或空内容代替。
+  const currentLog = await ctx.sessionQuery.readSession(sessionId)
   const targetTrace = await ctx.sessionQuery.traceSession(sessionId)
   const rootId = targetTrace.complete
     ? targetTrace.root.header.id
     : targetTrace.ancestors.at(-1)?.header.id ?? sessionId
   const rootTrace = rootId === sessionId ? targetTrace : await ctx.sessionQuery.traceSession(rootId)
   const lineage = flattenLineage(rootTrace.target, rootTrace.descendants)
-  const logs = await mapConcurrent(lineage, async ({ record }) => {
-    if (record.header.id !== sessionId && record.header.parentSession === undefined) {
-      return { events: [] as SessionEvent[], inheritedEventCount: 0 }
+  const inspections = await mapConcurrent(lineage, async ({ record }) => {
+    if (record.header.id === sessionId) {
+      return { version: ownVersionEvent(record.header, currentLog.events, currentLog.inheritedEventCount) }
     }
-    return ctx.sessionQuery.readSession(record.header.id)
+    try {
+      const log = await ctx.sessionQuery.readSession(record.header.id)
+      return { version: ownVersionEvent(record.header, log.events, log.inheritedEventCount) }
+    } catch (error: unknown) {
+      return { unavailableReason: error instanceof Error ? error.message : String(error) }
+    }
   })
   const recordsById = new Map(lineage.map(({ record }) => [record.header.id, record]))
   const currentPath = new Set<SessionId>()
@@ -1120,8 +1132,8 @@ async function timeline(ctx: Context, sessionId: SessionId): Promise<MessageEdit
   }
 
   const versions: VersionSummary[] = lineage.map(({ record, depth }, index) => {
-    const log = logs[index]
-    const version = ownVersionEvent(record.header, log?.events ?? [], log?.inheritedEventCount ?? 0)
+    const inspection = inspections[index]
+    const version = inspection?.version
     return {
       sessionId: record.header.id,
       ...record.header.parentSession === undefined ? {} : { parentSessionId: record.header.parentSession },
@@ -1133,6 +1145,7 @@ async function timeline(ctx: Context, sessionId: SessionId): Promise<MessageEdit
       depth,
       current: record.header.id === sessionId,
       onCurrentEffectPath: currentPath.has(record.header.id),
+      ...inspection?.unavailableReason === undefined ? {} : { unavailableReason: inspection.unavailableReason },
       ...version === undefined ? {} : {
         operation: version.effect.operation,
         cascade: version.effect.cascade,
@@ -1157,16 +1170,16 @@ async function timeline(ctx: Context, sessionId: SessionId): Promise<MessageEdit
     const inverseId = undoCursor.inverseSessionId
     if (undoStack.includes(inverseId)) throw new Error('版本效果逆链包含循环。')
     if (!versionsById.has(inverseId)) throw new Error(`恢复目标 ${inverseId} 不在可见版本树中。`)
+    if (versionsById.get(inverseId)?.unavailableReason !== undefined) break
     undoStack.push(inverseId)
     undoCursor = versionsById.get(inverseId)
   }
   const redoSessionIds = versions
-    .filter(version => version.inverseSessionId === sessionId)
+    .filter(version => version.inverseSessionId === sessionId && version.unavailableReason === undefined)
     .map(version => version.sessionId)
 
   const currentIndex = versions.findIndex(version => version.current)
-  const currentLog = logs[currentIndex]
-  if (currentIndex < 0 || currentLog === undefined) throw new Error('当前版本不在版本树中。')
+  if (currentIndex < 0) throw new Error('当前版本不在版本树中。')
   const turns = closedTurns(visibleUserEvents(currentLog.events))
   return {
     sessionId,

@@ -32,6 +32,7 @@ export function MessageEditHeader({
   const redoSessionId = timeline?.redoSessionIds.at(-1)
   const effectDepth = timeline?.undoStack.length ?? 0
   const busy = state.pending !== null || state.status !== 'ready'
+  const loadFailed = state.status === 'error'
 
   return (
     <>
@@ -54,8 +55,10 @@ export function MessageEditHeader({
         >
           ←
         </button>
-        <span className={styles['counter']}>
-          {versions.length === 0 ? '效果 —' : `效果 ${String(effectDepth)} 层 · ${String(versions.length)} 版`}
+        <span className={styles['counter']} role={loadFailed ? 'alert' : undefined}>
+          {loadFailed ? '消息加载失败'
+            : state.status === 'idle' || state.status === 'loading' ? '正在载入…'
+              : versions.length === 0 ? '效果 —' : `效果 ${String(effectDepth)} 层 · ${String(versions.length)} 版`}
         </span>
         <button
           type="button"
@@ -69,14 +72,16 @@ export function MessageEditHeader({
         >
           →
         </button>
-        <button
-          type="button"
-          className={styles['rerollButton']}
-          disabled={busy || state.timeline === null}
-          onClick={() => { void reroll() }}
-        >
-          {state.pending === 'reroll' ? '正在重生成…' : '重生成'}
-        </button>
+        {loadFailed
+          ? <button type="button" className={styles['rerollButton']} aria-label="重新载入消息时间线" onClick={load}>重新载入</button>
+          : <button
+              type="button"
+              className={styles['rerollButton']}
+              disabled={busy || state.timeline === null}
+              onClick={() => { void reroll() }}
+            >
+              {state.pending === 'reroll' ? '正在重生成…' : '重生成'}
+            </button>}
       </div>
     </>
   )

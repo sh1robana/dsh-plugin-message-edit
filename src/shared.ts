@@ -146,6 +146,8 @@ export interface VersionSummary {
   depth: number
   current: boolean
   onCurrentEffectPath: boolean
+  /** 其他版本无法读取时保留节点并说明原因，禁止切换到该版本。 */
+  unavailableReason?: string
   operation?: VersionOperation
   cascade?: CascadePolicy
   targetTurn?: number

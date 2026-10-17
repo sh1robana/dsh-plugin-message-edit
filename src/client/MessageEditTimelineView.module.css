@@ -288,6 +288,10 @@
   opacity: 1;
 }
 
+.versionButton[data-unavailable] {
+  opacity: 1;
+}
+
 .versionButton:not([data-current]) .pathBadge {
   opacity: 0.8;
 }
@@ -361,8 +365,18 @@
   overflow-wrap: anywhere;
 }
 
+.versionUnavailable {
+  margin-top: 5px;
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 14px;
+  line-height: 22px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .currentBadge,
 .pathBadge,
+.unavailableBadge,
 .kindBadge {
   flex: none;
   padding: 1px 6px;
@@ -378,6 +392,11 @@
 
 .pathBadge {
   color: var(--dsw-alias-label-tertiary);
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.unavailableBadge {
+  color: var(--dsw-alias-state-error-primary);
   background: var(--dsw-alias-bg-layer-1);
 }
 

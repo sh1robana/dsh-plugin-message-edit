@@ -10,7 +10,9 @@
 - **编辑与重试**：编辑助手回复或思考、重生成最后回复、重试历史回合；通过 Timeline 查看记录、切换版本。
 - **完整编辑框**：支持 `@` 文件与会话引用、权限、模型和推理等级选择，以及取消编辑的二次确认。
 
-已完成桌面验证：**DSH `0.2.0-rc.2`、`0.2.1-rc.1`**。`0.3.1` 适配 DSH `0.2.1-rc.1`，并修复编辑框拖放重复与消息按钮样式，详见 [更新记录](CHANGELOG.md)。首次打开会话时请等待历史消息加载完成。
+`0.3.2` 适配 DSH **`0.2.1-rc.2`**，修复首回合助手编辑后的日志结构问题，并隔离不可读历史分支，详见 [更新记录](CHANGELOG.md)。保留已完成桌面验证的 `0.2.0-rc.2`、`0.2.1-rc.1`；`rc.2` 已通过自动检查、本地原生读取及浏览器演示验证，完整桌面回归记录待补齐。首次打开会话时请等待历史消息加载完成。
+
+安装新版不会自动修复已损坏的历史文件。遇到历史加载失败时请保留原件，先备份再单独恢复。
 
 ![用户消息编辑示例](docs/screenshots/editor-light.jpg)
 
@@ -20,19 +22,23 @@
 
 ### 安装
 
-使用 GitHub Release 的 `0.3.1` 预构建安装包：
+使用 GitHub Release 的 `0.3.2` 预构建安装包：
 
 ```sh
-dsh plugin --profile desktop add -w https://github.com/sh1robana/dsh-plugin-message-edit/releases/download/v0.3.1/dsh-plugin-message-edit-0.3.1.tgz
+dsh plugin --profile desktop add -w https://github.com/sh1robana/dsh-plugin-message-edit/releases/download/v0.3.2/dsh-plugin-message-edit-0.3.2.tgz
 ```
 
 Windows 桌面端没有全局 `dsh` 命令时，使用安装目录里的 CLI，按实际安装位置修改路径：
 
 ```powershell
-& 'D:\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd' plugin --profile desktop add -w https://github.com/sh1robana/dsh-plugin-message-edit/releases/download/v0.3.1/dsh-plugin-message-edit-0.3.1.tgz
+& 'D:\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd' plugin --profile desktop add -w https://github.com/sh1robana/dsh-plugin-message-edit/releases/download/v0.3.2/dsh-plugin-message-edit-0.3.2.tgz
 ```
 
-npm 渠道目前仍为 `0.3.0`，不包含本次适配和优化；安装新版请使用上面的 GitHub Release 链接。
+也可通过 npm 安装同一版本：
+
+```sh
+dsh plugin --profile desktop add -w @sh1robana/dsh-plugin-message-edit@0.3.2
+```
 
 **安装后保存工作，彻底退出 DSH，再重新启动。** 如果已安装旧的 `dsh-message-edit` 或其他消息编辑插件，请先停用，避免重复按钮和接口冲突。迁移本项目旧版时，可先执行 `dsh plugin --profile desktop remove -w dsh-message-edit`。
 

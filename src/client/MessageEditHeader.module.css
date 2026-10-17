@@ -60,8 +60,14 @@
   text-align: center;
 }
 
+.counter[role='alert'] {
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
 @media (max-width: 760px) {
-  .counter {
+  .counter:not([role='alert']) {
     display: none;
   }
 }
