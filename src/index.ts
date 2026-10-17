@@ -1,5 +1,6 @@
 /// <reference lib="esnext.disposable" />
 /** Host half of Message Edit: turn-atomic forks and structurally reversible versions. */
+import { isAbsolute } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent, AgentHandle, AgentOptions, AgentSetup } from '@deepseek-ai/dsh-agent'
 import type { ModelSelection, SessionController } from '@deepseek-ai/dsh-api-session-controller'
@@ -856,9 +857,16 @@ async function openReference(ctx: Context, sessionId: SessionId, path: string, s
   const snapshot = await ctx.sessionQuery.readSession(sessionId)
   const fs = ctx.get('fs') as FileSystem | undefined
   if (fs === undefined) throw new Error('当前 DSH 未提供文件系统服务。')
-  // 相对引用从所属会话工作区解析；绝对路径沿用桌面端的原生验证和打开能力。
-  const target = await fs.resolve(path, { ...snapshot.session.cwd === undefined ? {} : { cwd: snapshot.session.cwd }, signal })
-  await sessionController(ctx).openWorkspacePath({ path: fs.processPath(target) }, signal)
+  const controller = sessionController(ctx)
+  let cwd = snapshot.session.cwd
+  if (!isAbsolute(path)) {
+    const projected = await controller.projections({ sessionId }, signal)
+    const directory = projected?.values['workingDirectory']
+    if (typeof directory === 'string') cwd = directory
+  }
+  // 新宿主的文件候选来自当前目录；旧宿主没有该投影时仍从会话工作区解析。
+  const target = await fs.resolve(path, { ...cwd === undefined ? {} : { cwd }, signal })
+  await controller.openWorkspacePath({ path: fs.processPath(target) }, signal)
 }
 
 async function recoverOperation(inverses: OperationInverse[]): Promise<void> {

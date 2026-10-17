@@ -16,7 +16,7 @@
     "esModuleInterop": true,
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": false,
-    "types": [],
+    "types": ["node"],
     "noEmit": true,
     "incremental": true,
     "tsBuildInfoFile": "node_modules/.cache/tsconfig.tsbuildinfo"

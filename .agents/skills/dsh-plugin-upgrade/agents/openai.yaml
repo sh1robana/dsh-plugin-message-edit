@@ -1,0 +1,4 @@
+interface:
+  display_name: "DSH 插件升级适配"
+  short_description: "核对 DSH 新版本接口变化，最小适配现有插件并验证原有功能"
+  default_prompt: "使用 $dsh-plugin-upgrade，将当前插件适配到已安装的 DSH 版本，保留现有功能，完成构建和测试；桌面安装与验收前先确认授权，暂不发布。"

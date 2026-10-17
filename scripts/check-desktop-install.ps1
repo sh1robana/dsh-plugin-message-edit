@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$AppPath = 'D:\DeepSeek Harness',
     [string]$ProfilePath = (Join-Path $env:USERPROFILE '.dsh\profiles\desktop')
 )

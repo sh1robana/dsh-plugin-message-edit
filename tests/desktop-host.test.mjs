@@ -813,6 +813,40 @@ test('文件引用从所属工作区解析，外部显式路径复用官方打�
   assert.deepEqual(f.followups, [])
 })
 
+test('文件引用优先使用当前目录投影，冷会话打开也不恢复 Agent 或写入会话', async () => {
+  const f = fixture()
+  const services = composerServices(f)
+  const readSession = f.ctx.sessionQuery.readSession
+  f.ctx.sessionQuery.readSession = async id => {
+    const record = await readSession(id)
+    return { ...record, session: { ...record.session, cwd: 'D:\\workspace' } }
+  }
+  f.services.get('sessionController').projections = async () => ({
+    kind: 'sequenced', asOfSeq: f.source.seq, values: { workingDirectory: 'E:\\当前目录' },
+  })
+  await f.request({ action: 'open-reference', sessionId: 'source', path: '资料\\说明.txt' })
+  f.cold('source')
+  const original = structuredClone((await f.ctx.sessionQuery.readSession('source')).events)
+  await f.request({ action: 'open-reference', sessionId: 'source', path: '另一个文件.txt' })
+  assert.deepEqual(services.opened, [{ path: 'E:\\当前目录\\资料\\说明.txt' }, { path: 'E:\\当前目录\\另一个文件.txt' }])
+  assert.deepEqual(services.resolvedPaths.map(item => item.cwd), ['E:\\当前目录', 'E:\\当前目录'])
+  assert.deepEqual((await f.ctx.sessionQuery.readSession('source')).events, original)
+  assert.equal(f.ctx.agents.get('source'), undefined)
+  assert.deepEqual(f.mounted, [])
+  assert.deepEqual(f.followups, [])
+})
+
+test('绝对文件引用不依赖当前目录投影读取，仍沿用宿主路径验证', async () => {
+  const f = fixture()
+  const services = composerServices(f)
+  f.services.get('sessionController').projections = async () => { throw new Error('投影暂不可用') }
+  const original = structuredClone(f.source.snapshotEvents())
+  await f.request({ action: 'open-reference', sessionId: 'source', path: 'E:\\用户选择\\外部文件.pdf' })
+  assert.deepEqual(services.opened, [{ path: 'E:\\用户选择\\外部文件.pdf' }])
+  assert.deepEqual(f.source.snapshotEvents(), original)
+  assert.deepEqual(f.followups, [])
+})
+
 test('正文和完整附件未改：不写事件、不落盘、不准入附件，连续保存仍然不变', async () => {
   const f = fixture([[{ type: 'text', text: '原问题' }, imageBlock(), { type: 'text', text: '第二段' }, fileBlock()]]);
   const services = attachmentServices(f);

@@ -1,3 +1,4 @@
+import { isAbsolute } from "node:path";
 import { foldSurface } from "@deepseek-ai/dsh-session";
 //#region src/saved-user-messages.ts
 function savedUserMessageSeq(event) {
@@ -32,9 +33,9 @@ function visibleUserEvents(events) {
 //#region src/build-info.ts
 /** 由构建脚本生成；前后端共享同一份构建身份。 */
 const MESSAGE_EDIT_BUILD_INFO = Object.freeze({
-	"version": "0.3.0",
-	"buildId": "952c32134401a88f10f7",
-	"targetDshVersion": "0.2.0-rc.2"
+	"version": "0.3.1",
+	"buildId": "647a97f515a9d270036c",
+	"targetDshVersion": "0.2.1-rc.1"
 });
 //#endregion
 //#region src/shared.ts
@@ -46,6 +47,7 @@ const MESSAGE_EDIT_VIEW_ORDER = 15;
 const MESSAGE_EDIT_VERSION_SCHEMA = 2;
 //#endregion
 //#region src/index.ts
+/** Host half of Message Edit: turn-atomic forks and structurally reversible versions. */
 /** Stable Cordis plugin name. */
 const name = "message-edit";
 /** Public services used by the branch transaction and timeline projection. */
@@ -686,11 +688,17 @@ async function openReference(ctx, sessionId, path, signal) {
 	const snapshot = await ctx.sessionQuery.readSession(sessionId);
 	const fs = ctx.get("fs");
 	if (fs === void 0) throw new Error("当前 DSH 未提供文件系统服务。");
+	const controller = sessionController(ctx);
+	let cwd = snapshot.session.cwd;
+	if (!isAbsolute(path)) {
+		const directory = (await controller.projections({ sessionId }, signal))?.values["workingDirectory"];
+		if (typeof directory === "string") cwd = directory;
+	}
 	const target = await fs.resolve(path, {
-		...snapshot.session.cwd === void 0 ? {} : { cwd: snapshot.session.cwd },
+		...cwd === void 0 ? {} : { cwd },
 		signal
 	});
-	await sessionController(ctx).openWorkspacePath({ path: fs.processPath(target) }, signal);
+	await controller.openWorkspacePath({ path: fs.processPath(target) }, signal);
 }
 async function recoverOperation(inverses) {
 	const failures = [];

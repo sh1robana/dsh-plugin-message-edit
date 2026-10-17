@@ -10,7 +10,7 @@
 - **编辑与重试**：编辑助手回复或思考、重生成最后回复、重试历史回合；通过 Timeline 查看记录、切换版本。
 - **完整编辑框**：支持 `@` 文件与会话引用、权限、模型和推理等级选择，以及取消编辑的二次确认。
 
-当前验证版本：**DSH 桌面端 `0.2.0-rc.2`**。其他版本需要另行验证；首次打开会话时请等待历史消息加载完成。
+已完成桌面验证：**DSH `0.2.0-rc.2`、`0.2.1-rc.1`**。`0.3.1` 适配 DSH `0.2.1-rc.1`，并修复编辑框拖放重复与消息按钮样式，详见 [更新记录](CHANGELOG.md)。首次打开会话时请等待历史消息加载完成。
 
 ![用户消息编辑示例](docs/screenshots/editor-light.jpg)
 
@@ -20,23 +20,19 @@
 
 ### 安装
 
-从 npm 安装：
+使用 GitHub Release 的 `0.3.1` 预构建安装包：
 
 ```sh
-dsh plugin --profile desktop add -w @sh1robana/dsh-plugin-message-edit
-```
-
-或通过 GitHub Release 的预构建安装包安装：
-
-```sh
-dsh plugin --profile desktop add -w https://github.com/sh1robana/dsh-plugin-message-edit/releases/download/v0.3.0/dsh-plugin-message-edit-0.3.0.tgz
+dsh plugin --profile desktop add -w https://github.com/sh1robana/dsh-plugin-message-edit/releases/download/v0.3.1/dsh-plugin-message-edit-0.3.1.tgz
 ```
 
 Windows 桌面端没有全局 `dsh` 命令时，使用安装目录里的 CLI，按实际安装位置修改路径：
 
 ```powershell
-& 'D:\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd' plugin --profile desktop add -w https://github.com/sh1robana/dsh-plugin-message-edit/releases/download/v0.3.0/dsh-plugin-message-edit-0.3.0.tgz
+& 'D:\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd' plugin --profile desktop add -w https://github.com/sh1robana/dsh-plugin-message-edit/releases/download/v0.3.1/dsh-plugin-message-edit-0.3.1.tgz
 ```
+
+npm 渠道目前仍为 `0.3.0`，不包含本次适配和优化；安装新版请使用上面的 GitHub Release 链接。
 
 **安装后保存工作，彻底退出 DSH，再重新启动。** 如果已安装旧的 `dsh-message-edit` 或其他消息编辑插件，请先停用，避免重复按钮和接口冲突。迁移本项目旧版时，可先执行 `dsh plugin --profile desktop remove -w dsh-message-edit`。
 
@@ -59,3 +55,7 @@ Windows 桌面端没有全局 `dsh` 命令时，使用安装目录里的 CLI，�
 基于 [Moeblack/dsh-message-edit](https://github.com/Moeblack/dsh-message-edit) 继续开发；感谢 [DDDMUC/dsh-edit-turn](https://github.com/DDDMUC/dsh-edit-turn) 的设计参考、DeepSeek Harness 的插件接口与构建预设，以及 [dsh-market](https://github.com/dsh-market/dsh-market)、[awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) 社区的发布文档。
 
 以 MIT 许可发布。来源与许可见 [NOTICE.md](NOTICE.md) 和 [LICENSE](LICENSE)；开发与发布步骤见 [发布指南](docs/发布指南.md)。
+
+维护源码时先阅读仓库根目录的 `CLAUDE.md` 和 `log/README.md`；开发过程记录在 `log/` 的日期日志中。
+
+DSH 更新后，可使用仓库内的 `dsh-plugin-upgrade` Skill 进行插件适配，见 [使用方式](docs/DSH升级适配Skill使用.md)。

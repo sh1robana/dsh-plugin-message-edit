@@ -357,6 +357,7 @@ test('消息按钮按新版回合标识定位重复文本，点击编辑和重�
     textContent = ''
     nodeType = 1
     get childNodes() { return this.children }
+    get parentElement() { return this.parent }
     set innerHTML(value) { this.textContent = value.replace(/<[^>]*>/g, '') }
     get innerHTML() { return this.textContent }
     constructor(tag) { this.tagName = tag }
@@ -378,7 +379,9 @@ test('消息按钮按新版回合标识定位重复文本，点击编辑和重�
     contains(node) { return node === this || this.children.some(child => child.contains?.(node)) }
     addEventListener(name, listener) { this.listeners.set(name, listener) }
     removeEventListener(name) { this.listeners.delete(name) }
-    querySelectorAll() { return this.children.filter(child => child.tagName === 'button') }
+    querySelectorAll() {
+      return this.children.flatMap(child => [...(child.tagName === 'button' ? [child] : []), ...child.querySelectorAll()])
+    }
     closest() { return this.flow }
     insertAdjacentElement(_position, element) {
       element.parent = this.parent
@@ -394,10 +397,21 @@ test('消息按钮按新版回合标识定位重复文本，点击编辑和重�
   for (const [kind, turn] of [['user', 1], ['turn-tail', 1], ['user', 2], ['turn-tail', 2], ['assistant', 2]]) {
     const row = new Element('div')
     row.flow = { dataset: { chatFlowKind: kind, chatTurn: String(turn) } }
+    row.setAttribute('data-clock', kind === 'user' ? 'start' : 'end')
+    if (kind === 'user') row.append(new Element('span'))
     row.append(new Element('button'))
+    if (kind === 'turn-tail') {
+      row.append(new Element('button'))
+      const endInfo = new Element('span')
+      const usage = new Element('span')
+      usage.append(new Element('button'))
+      endInfo.append(usage, new Element('span'))
+      row.append(endInfo)
+    }
     body.append(row)
     actionRows.push(row)
   }
+  const nativeChildren = actionRows.map(row => [...row.children])
   const effects = []
   const hookValues = []
   let hookCursor = 0
@@ -412,7 +426,10 @@ test('消息按钮按新版回合标识定位重复文本，点击编辑和重�
       useRef: current => hookValues[hookCursor++] ??= { current } },
     globals: {
       document: {
-        body, querySelector: () => ({}), querySelectorAll: () => actionRows,
+        body, querySelector: () => ({}), querySelectorAll: selector => {
+          assert.equal(selector, '[data-clock="start"], [data-clock="end"]')
+          return actionRows
+        },
         createElement: tag => new Element(tag), createElementNS: (_namespace, tag) => new Element(tag),
         createRange: () => {
           let node
@@ -453,7 +470,21 @@ test('消息按钮按新版回合标识定位重复文本，点击编辑和重�
       else input.textContent = text
       input.listeners.get('input')?.({ target: input })
     }
-    assert.deepEqual(actionRows.map(row => row.children.length), [3, 3, 3, 3, 1])
+    assert.deepEqual(actionRows.map(row => row.children.length), nativeChildren.map((children, index) => children.length + (index < 4 ? 2 : 0)))
+    for (const row of actionRows.slice(0, 4)) {
+      const buttons = row.children.filter(button => button.title === '编辑消息' || button.title === '重试此回合')
+      assert.equal(buttons.length, 2)
+      for (const button of buttons) {
+        assert.equal(button.type, 'button')
+        assert.equal(button.children[0].getAttribute('width'), '16')
+        assert.equal(button.children[0].getAttribute('height'), '16')
+      }
+      if (row.getAttribute('data-clock') === 'end') {
+        const endInfo = nativeChildren[actionRows.indexOf(row)].at(-1)
+        assert.equal(row.children.at(-1), endInfo)
+        assert.equal(endInfo.querySelectorAll().length, 1, '用量子容器不应混入编辑和重试按钮')
+      }
+    }
     for (const [index, row] of actionRows.slice(0, 4).entries()) {
       row.children.find(button => button.title === '编辑消息').click()
       const overlay = body.children.at(-1)
@@ -482,6 +513,11 @@ test('消息按钮按新版回合标识定位重复文本，点击编辑和重�
     effects.at(-1)()
     assert.equal(actionRows[0].children.find(button => button.title === '编辑消息'), firstButton)
     assert.equal(firstButton.disabled, true)
+    assert.equal(actionRows[0].children.find(button => button.title === '重试此回合').disabled, true)
+    firstButton.click()
+    actionRows[0].children.find(button => button.title === '重试此回合').click()
+    assert.equal(edited.length, 4)
+    assert.deepEqual(retried, [1, 1, 2, 2])
     assert.equal(body.children.at(-1).children[0], panel)
     assert.equal(editorInput(panel).textContent, '未保存的草稿')
     renderInline({ ...inline.props, messages: updatedMessages, disabled: false })
@@ -512,12 +548,36 @@ test('消息按钮按新版回合标识定位重复文本，点击编辑和重�
     openUserEditor().children.at(-1).children.find(button => button.textContent === '取消').click()
     unmount()
     unmount = undefined
-    assert.deepEqual(actionRows.map(row => row.children.length), [1, 1, 1, 1, 1])
+    for (const [index, row] of actionRows.entries()) assert.deepEqual(row.children, nativeChildren[index])
     assert.equal(body.children.length, 5)
   } finally {
     unmount?.()
     release()
   }
+})
+
+test('消息操作按钮复用原生主题、点击区和禁用反馈，图标固定为 16px', () => {
+  const css = readFileSync(new URL('../src/client/InlineMessageEdit.module.css', import.meta.url), 'utf8')
+  const rule = selector => {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const match = new RegExp(`(?:^|\\n)${escaped} \\{([^}]+)\\}`).exec(css)
+    assert.ok(match, `缺少按钮样式：${selector}`)
+    return match[1]
+  }
+  const button = rule('.iconButton')
+  assert.match(button, /color: var\(--dsw-alias-label-tertiary\)/)
+  assert.match(button, /width: calc\(28px \+ var\(--dsh-content-font-delta, 0px\)\)/)
+  assert.match(button, /height: calc\(28px \+ var\(--dsh-content-font-delta, 0px\)\)/)
+  assert.match(button, /border-radius: var\(--dsw-radius-sm\)/)
+  assert.doesNotMatch(button, /--message-edit-/)
+  const icon = rule('.iconButton > svg')
+  assert.match(icon, /width: 16px/)
+  assert.match(icon, /height: 16px/)
+  const hover = rule('.iconButton:not(:disabled):hover')
+  assert.match(hover, /color: var\(--dsw-alias-label-secondary\)/)
+  assert.match(hover, /background: var\(--dsw-alias-interactive-bg-hover\)/)
+  assert.match(rule('.iconButton:disabled'), /cursor: default/)
+  assert.match(rule('.iconButton:disabled'), /opacity: 0\.4/)
 })
 
 test('客户端读取附件及完整内容，两种保存传递附件列表且未传附件保持兼容', async () => {

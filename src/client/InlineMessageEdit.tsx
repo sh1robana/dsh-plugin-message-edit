@@ -291,7 +291,7 @@ export function InlineMessageEdit({
     let scheduled = false
 
     const sync = (): void => {
-      const actionRows = Array.from(document.querySelectorAll<HTMLElement>('[class*="actions"]'))
+      const actionRows = Array.from(document.querySelectorAll<HTMLElement>('[data-clock="start"], [data-clock="end"]'))
       const presentRows = new Set(actionRows)
       for (const [row, binding] of bindings) {
         if (presentRows.has(row)) continue
@@ -348,6 +348,7 @@ export function InlineMessageEdit({
         marker.__messageEditEventSeq = eventSeq
 
         const editButton = document.createElement('button')
+        editButton.type = 'button'
         editButton.className = STYLE.iconButton
         editButton.setAttribute('aria-label', '编辑消息')
         editButton.title = '编辑消息'
@@ -362,6 +363,7 @@ export function InlineMessageEdit({
         editButton.addEventListener('click', editMessage)
 
         const retryButton = document.createElement('button')
+        retryButton.type = 'button'
         retryButton.className = STYLE.iconButton
         retryButton.setAttribute('aria-label', '重试此回合')
         retryButton.title = '重试此回合'
@@ -375,9 +377,9 @@ export function InlineMessageEdit({
         }
         retryButton.addEventListener('click', retryTurn)
 
-        // 保持图标紧跟官方按钮，不改变时间标记的位置。
+        // 仅跟随操作行的直接按钮，避免进入用量或反馈的子容器而丢失原生间距。
         const officialButtons = Array.from(row.querySelectorAll('button'))
-          .filter(button => button !== editButton && button !== retryButton)
+          .filter(button => button.parentElement === row && button !== editButton && button !== retryButton)
         const lastOfficial = officialButtons.at(-1)
         if (lastOfficial !== undefined) {
           lastOfficial.insertAdjacentElement('afterend', retryButton)

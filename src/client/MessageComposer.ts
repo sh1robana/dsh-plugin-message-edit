@@ -343,6 +343,19 @@ export function mountMessageComposer(container: HTMLElement, block: EditableMess
     if (!popup.hidden && (popup.dataset['kind'] === 'model' || popup.dataset['kind'] === 'modelList')) closeMenu()
     else modelMenu()
   }
+  const dropTarget = container.closest<HTMLElement>('[role="dialog"]') ?? frame
+  const fileDrag = (event: DragEvent): void => {
+    const transfer = event.dataTransfer
+    if (transfer === null || !Array.from(transfer.types).includes('Files')) return
+    // 宿主在 document 冒泡接收文件；先于正文接管，避免两个草稿重复收取。
+    event.preventDefault()
+    event.stopPropagation()
+    if (event.type === 'dragenter' || event.type === 'dragover') transfer.dropEffect = disabled ? 'none' : 'copy'
+    if (event.type !== 'drop' || disabled || disposed) return
+    try { addFiles(Array.from(transfer.files)) } catch (error) { showError(error) }
+  }
+  const fileDragEvents = ['dragenter', 'dragover', 'dragleave', 'drop'] as const
+  for (const name of fileDragEvents) dropTarget.addEventListener(name, fileDrag, true)
   frame.addEventListener('keydown', event => {
     if (event.isComposing || event.keyCode === 229) return
     if (event.key === 'Escape' && !popup.hidden) { closeMenu(); richInput.focus(); event.stopPropagation() }
@@ -376,6 +389,7 @@ export function mountMessageComposer(container: HTMLElement, block: EditableMess
       search?.abort()
       if (searchTimer !== undefined) clearTimeout(searchTimer)
       document.removeEventListener('click', outside)
+      for (const name of fileDragEvents) dropTarget.removeEventListener(name, fileDrag, true)
       attachmentEditor.dispose()
       richInput.dispose()
       frame.remove(); status.remove()

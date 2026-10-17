@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { win32 as windowsPath } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import Sessions from '@deepseek-ai/dsh-session'
 import Projections from '@deepseek-ai/dsh-session-projection'
@@ -8,6 +9,7 @@ import Loop from '@deepseek-ai/dsh-agent-loop'
 import Llm, { LlmAdapter } from '@deepseek-ai/dsh-llm'
 import Tools from '@deepseek-ai/dsh-tools'
 import Prompt from '@deepseek-ai/dsh-system-prompt'
+import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
 import { apply, MESSAGE_EDIT_PATH } from '../index.mjs'
 
 /** 内存句柄模拟持久化生命周期，Agent 的创建、恢复与消息投影仍使用真实 DSH。 */
@@ -226,6 +228,74 @@ test('真实 DSH AgentLoop：原会话保存及冷恢复均不调用模型，保
     assert.equal(sent.agent.session.deriveMessages().find(m => m.role === 'assistant').content[0].text, '新回复')
     assert.equal(restored.agent.session.deriveMessages().find(m => m.role === 'user').content[0].text, '冷恢复后只保存的问题')
     assert.deepEqual(restored.agent.session.snapshotEvents().slice(0, originalPrefix.length), originalPrefix)
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
+
+test('真实 DSH 当前目录投影：分支保留原工作区和目录变更，文件引用从当前目录打开', async () => {
+  const ctx = new Context()
+  new Projections(ctx)
+  new Sessions(ctx)
+  new Agents(ctx)
+  new Llm(ctx)
+  new Prompt(ctx, { includeHarnessIdentity: false, includeRuntimeContext: false })
+  new Tools(ctx)
+  ctx.provide('fs', {
+    resolve: async (path, options = {}) => {
+      options.signal?.throwIfAborted()
+      return windowsPath.resolve(options.cwd ?? 'D:\\workspace', path)
+    },
+    stat: async () => ({ type: 'directory' }),
+    processPath: path => path,
+  })
+  new WorkingDirectory(ctx, { defaultDirectory: 'D:\\workspace' })
+  new Loop(ctx, { agents: [], maxParallelToolCalls: 10 })
+  memoryPersistence(ctx)
+  let route
+  const opened = []
+  ctx.provide('connection', { fetch: { register: value => { route = value } } })
+  ctx.provide('workspaceRegistry', { list: () => [] })
+  ctx.provide('sessionQuery', { readSession: async id => {
+    const session = ctx.sessions.get(id)
+    return { session: session.header, inheritedEventCount: session.inheritedEventCount, events: session.snapshotEvents() }
+  } })
+  ctx.provide('sessionController', {
+    projections: async ({ sessionId }) => ({ kind: 'sequenced', ...ctx.sessionProjections.snapshot(ctx.sessions.get(sessionId)) }),
+    openWorkspacePath: async request => { opened.push(request.path); return { opened: true } },
+  })
+  try {
+    const handle = await ctx.agents.create({ sessionId: 'source', meta: { cwd: 'D:\\workspace' }, agentOptions: { provider: 'test', model: 'test' } })
+    const source = handle.agent.session
+    source.append('working-directory/change', { cwd: 'E:\\当前目录' })
+    source.append('turn/start', { turn: 1 })
+    source.append('user/message', {
+      id: crypto.randomUUID(), role: 'user', content: [{ type: 'text', text: '测试问题' }], source: { kind: 'user' },
+    }, { surfaceOp: 'append' })
+    source.append('step/start', { turn: 1, step: 1 })
+    const assistant = source.append('assistant/message', { turn: 1, step: 1, stream: [], message: {
+      id: crypto.randomUUID(), role: 'assistant', content: [{ type: 'text', text: '原回复' }], source: { kind: 'model', provider: 'test', model: 'test' },
+    } }, { surfaceOp: 'append' })
+    source.append('step/end', { turn: 1, step: 1 })
+    source.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    apply(ctx)
+    const post = async operation => {
+      const response = await route.fetch(new Request(`http://localhost${MESSAGE_EDIT_PATH}`, { method: 'POST', body: JSON.stringify(operation) }))
+      const result = await response.json()
+      assert.equal(response.status, 200, JSON.stringify(result))
+      return result
+    }
+    const original = structuredClone(source.snapshotEvents())
+    const result = await post({ action: 'edit', sessionId: source.id, eventSeq: assistant.seq, blockIndex: 0, text: '改好的回复', cascade: 'truncate' })
+    const child = ctx.agents.get(result.sessionId)
+    assert.equal(child.session.header.cwd, 'D:\\workspace')
+    assert.equal(ctx.workingDirectory.get(child.session), 'E:\\当前目录')
+    assert.equal(ctx.sessionProjections.snapshot(child.session).values.workingDirectory, 'E:\\当前目录')
+    assert.equal(child.session.snapshotEvents().filter(event => event.type === 'working-directory/change').length, 1)
+    await post({ action: 'open-reference', sessionId: child.id, path: '资料\\说明.txt' })
+    assert.deepEqual(opened, ['E:\\当前目录\\资料\\说明.txt'])
+    assert.deepEqual(source.snapshotEvents(), original)
+    assert.equal(child.status, 'idle')
   } finally {
     await ctx.fiber.dispose()
   }

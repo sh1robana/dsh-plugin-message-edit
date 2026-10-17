@@ -224,21 +224,34 @@
 
 .iconButton {
   display: inline-flex;
+  flex: none;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
-  padding: 2px;
+  box-sizing: border-box;
+  width: calc(28px + var(--dsh-content-font-delta, 0px));
+  height: calc(28px + var(--dsh-content-font-delta, 0px));
+  padding: 6px;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--dsw-radius-sm);
   background: transparent;
-  color: var(--message-edit-secondary);
+  color: var(--dsw-alias-label-tertiary);
   cursor: pointer;
 }
 
-.iconButton:hover {
-  color: var(--message-edit-text);
-  background: var(--message-edit-hover);
+.iconButton > svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+
+.iconButton:not(:disabled):hover {
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.iconButton:disabled {
+  cursor: default;
+  opacity: 0.4;
 }
 
 .picker {
