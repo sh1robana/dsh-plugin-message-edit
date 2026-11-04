@@ -1,10 +1,10 @@
 {
-  "version": "0.3.2",
-  "buildId": "fb262bfb70ae668e9391",
+  "version": "0.3.3",
+  "buildId": "8b68760be79248960bd3",
   "targetDshVersion": "0.2.1-rc.5",
   "files": {
-    "index.mjs": "3ca4e332241f054f2a6ca8297bbf6dd680de805e35516e686ea43f5f176ca351",
-    "client.js": "2854919aa35b74aa85ef663013fca46259fe2f5591ee287c5aec9ff8e6e80f55",
-    "client.js.map": "b90ea60dcb9f28ff7fd28ecda041101a6fcd404187dac074509383f3cbec5f7e"
+    "index.mjs": "fa2e8eace8710fcc9e65c51b7f8754fae9e5ca1a8df7d745fa4958f61aa7b8e5",
+    "client.js": "a07e591e747d915b9dc2ec065d48f8ce552ba4d0936e367bdb5a30305af99c49",
+    "client.js.map": "8f788a0c0edc8d26a8d294c368a97c09930f8d898abf583df89bbdbe4f6aae0c"
   }
 }
