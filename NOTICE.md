@@ -7,9 +7,9 @@
 - 基础提交：`b78a167064ca612f1c400060d2bfc1dc9bc46436`
 - 上游 `package.json` 声明的许可证：`MIT`
 
-本项目现以 **dsh-plugin-message-edit** 独立维护，新增 DSH 桌面端 `0.2.0-rc.2`、`0.2.1-rc.1`、`0.2.1-rc.2` 的接口适配、原地保存、完整附件编辑、Windows 构建支持及自动化测试。保留上游原始作者信息；本项目不将原作者代码声明为新维护者原创。
+本项目现以 **dsh-plugin-message-edit** 独立维护，新增 DSH 桌面端 `0.2.0-rc.2`、`0.2.1-rc.1`、`0.2.1-rc.2`、`0.2.1-rc.5` 的接口适配、原地保存、完整附件编辑、Windows 构建支持及自动化测试。保留上游原始作者信息；本项目不将原作者代码声明为新维护者原创。
 
-桌面端适配由 [shirobana](https://github.com/sh1robana) 与 Codex（OpenAI AI 编程助手）协作完成，Codex 参与兼容代码、测试、安装脚本和文档的编写。贡献记录见 README。
+桌面端适配由 [shirobana](https://github.com/sh1robana) 与 Codex（OpenAI AI 编程助手）协作完成，Codex 参与兼容代码、测试、安装脚本和文档的编写；DSH `0.2.1-rc.5` 适配由 Claude（Anthropic AI 编程助手，经 Claude Code）参与接口取证、兼容声明、测试与文档。贡献记录见 README。
 
 上游仓库在上述提交中未附完整 `LICENSE` 文件，但 `package.json` 明确声明 `MIT`，Git 历史确认原作者为 Moeblack。本分支据此补充标准 MIT 文本，保留 Moeblack 的版权归属，不虚构其版权年份；这份文本由本分支补足，并非声称上游已经提供该文件。完整条款见 `LICENSE`。
 

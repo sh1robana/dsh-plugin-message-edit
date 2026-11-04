@@ -3,13 +3,14 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
-const supportedVersions = ['0.2.0-rc.2', '0.2.1-rc.1', '0.2.1-rc.2']
-const targetVersion = '0.2.1-rc.2'
+const supportedVersions = ['0.2.0-rc.2', '0.2.1-rc.1', '0.2.1-rc.2', '0.2.1-rc.5']
+const targetVersion = '0.2.1-rc.5'
 const isDshPackage = name => name.startsWith('@deepseek-ai/dsh-')
 
-test('顶层宿主声明明确包含目标 rc.2，并保留两个已有版本', () => {
+test('顶层宿主声明明确包含目标 rc.5，保留已有版本且不声明未验证的 rc.3、rc.4', () => {
   assert.equal(manifest.engines.dsh, supportedVersions.join(' || '))
   assert.equal(Object.hasOwn(manifest.dsh, 'engines'), false)
+  for (const skipped of ['0.2.1-rc.3', '0.2.1-rc.4']) assert.equal(manifest.engines.dsh.split(' || ').includes(skipped), false, skipped)
   for (const [name, range] of Object.entries(manifest.peerDependencies)) {
     if (isDshPackage(name)) assert.equal(range, manifest.engines.dsh, name)
   }

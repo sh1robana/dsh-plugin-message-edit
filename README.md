@@ -12,6 +12,8 @@
 
 `0.3.2` 适配 DSH **`0.2.1-rc.2`**，修复首回合助手编辑后的日志结构问题，并隔离不可读历史分支，详见 [更新记录](CHANGELOG.md)。保留已完成桌面验证的 `0.2.0-rc.2`、`0.2.1-rc.1`；`rc.2` 已通过自动检查、本地原生读取及浏览器演示验证，完整桌面回归记录待补齐。首次打开会话时请等待历史消息加载完成。
 
+已发布的 `0.3.2` 不包含 DSH `0.2.1-rc.5` 声明，在 rc.5 上会被宿主兼容检查拒绝。仓库源码已增加 `0.2.1-rc.5` 适配，通过自动检查及维护者桌面验收，尚未发布新版本。
+
 安装新版不会自动修复已损坏的历史文件。遇到历史加载失败时请保留原件，先备份再单独恢复。
 
 ![用户消息编辑示例](docs/screenshots/editor-light.jpg)
@@ -57,6 +59,7 @@ dsh plugin --profile desktop add -w @sh1robana/dsh-plugin-message-edit@0.3.2
 
 - **[shirobana](https://github.com/sh1robana)**：需求设计、桌面验收与项目维护。
 - **Codex（OpenAI AI 编程助手）**：协作完成兼容适配、功能实现、测试和文档。
+- **Claude（Anthropic AI 编程助手，经 Claude Code）**：协作完成 DSH `0.2.1-rc.5` 的接口取证、兼容适配、测试与安装验证。
 
 基于 [Moeblack/dsh-message-edit](https://github.com/Moeblack/dsh-message-edit) 继续开发；感谢 [DDDMUC/dsh-edit-turn](https://github.com/DDDMUC/dsh-edit-turn) 的设计参考、DeepSeek Harness 的插件接口与构建预设，以及 [dsh-market](https://github.com/dsh-market/dsh-market)、[awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) 社区的发布文档。
 

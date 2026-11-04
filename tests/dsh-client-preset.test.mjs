@@ -5,7 +5,7 @@ import { runInNewContext } from 'node:vm'
 import { fileURLToPath } from 'node:url'
 import { CLIENT_EXTERNALS, PLATFORM_MODULES, clientBundle } from '../scripts/dsh-client-preset.ts'
 
-test('客户端预设复用 DSH 0.2.1-rc.1、0.2.1-rc.2 的静态模块，不打包重复的宿主运行时', () => {
+test('客户端预设复用 DSH 0.2.1-rc.1、0.2.1-rc.2、0.2.1-rc.5 的静态模块，不打包重复的宿主运行时', () => {
   const expected = [
     'react', 'react/jsx-runtime', 'react-dom', 'react-dom/client', '@deepseek-ai/cordis',
     'zod', '@tanstack/react-virtual', '@deepseek-ai/dsh-client-store',

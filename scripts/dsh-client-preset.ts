@@ -38,7 +38,7 @@ const VENDORED_LIBRARY = /^@deepseek-ai\/(cosmokit|schemastery)(\/|$)/
 const GENERATED_REMOTE = /^@deepseek-ai\/dsh-[a-z0-9]+(?:-[a-z0-9]+)*\/remote$/
 
 /**
- * 对应桌面端 0.2.1-rc.1、0.2.1-rc.2 内置前端静态模块表，外部依赖复用宿主实例。
+ * 对应桌面端 0.2.1-rc.1、0.2.1-rc.2、0.2.1-rc.5 内置前端静态模块表，外部依赖复用宿主实例。
  */
 export const PLATFORM_MODULES: readonly string[] = [
   'react',
