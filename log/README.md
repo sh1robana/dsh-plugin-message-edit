@@ -6,13 +6,13 @@
 
 **`0.3.2` 已发布到 GitHub 和 npm，包含 DSH `0.2.1-rc.2` 适配、首回合助手编辑日志修复及坏分支隔离。发行构建 `dd2956d22ba2bccbd0c2` 的类型检查、双端构建与 111 项自动检查通过；GitHub 附件实际下载核验通过，npm latest 已指向 `0.3.2`。既有版本不覆盖；本机 profile 已安装 `0.3.2`（本地发行包，构建 `dd2956d22ba2bccbd0c2`），待重启后确认实际加载；rc.2 完整桌面复测记录待补齐。**
 
-**2026-11-04：桌面端已更新到 DSH `0.2.1-rc.5`，已发布的 `0.3.2` 会被其兼容检查拒绝。源码已适配 rc.5（构建 `f72c47710c1732a16424`，带目标输入 111 项检查通过），已安装到本机 profile 并经维护者桌面验收通过；源码推送到 GitHub main，尚未发布新版本。详见 [11 月 4 日日志](2026-11-04.md)。**
+**2026-11-04：桌面端已更新到 DSH `0.2.1-rc.5`，已发布的 `0.3.2` 会被其兼容检查拒绝。源码已适配 rc.5（构建 `f72c47710c1732a16424`，带目标输入 111 项检查通过），已安装到本机 profile 并经维护者桌面验收通过。**同日发布 `0.3.3` 到 GitHub Release 与 npm（latest），两渠道下载均与发行包逐字节一致；社区目录未更新。**详见 [11 月 4 日日志](2026-11-04.md)。**
 
 | 项目 | 状态与入口 |
 | --- | --- |
 | 源码仓库 | [sh1robana/dsh-plugin-message-edit](https://github.com/sh1robana/dsh-plugin-message-edit) |
-| GitHub Release | [v0.3.2](https://github.com/sh1robana/dsh-plugin-message-edit/releases/tag/v0.3.2)，最新正式版，安装包已发布 |
-| npm | [@sh1robana/dsh-plugin-message-edit](https://www.npmjs.com/package/@sh1robana/dsh-plugin-message-edit)，已发布 `0.3.2`，latest 已更新 |
+| GitHub Release | [v0.3.3](https://github.com/sh1robana/dsh-plugin-message-edit/releases/tag/v0.3.3)，最新正式版（DSH rc.5 适配），安装包已发布 |
+| npm | [@sh1robana/dsh-plugin-message-edit](https://www.npmjs.com/package/@sh1robana/dsh-plugin-message-edit)，已发布 `0.3.3`，latest 已更新 |
 | 实际验证的宿主 | DSH 桌面端 `0.2.0-rc.2`、`0.2.1-rc.1`、`0.2.1-rc.5`；后两者由维护者在本地确认适配成功 |
 | 发布前验证 | `0.3.2` 类型检查、构建及 111 项自动检查通过；实际打包成员、双端身份、来源及隐私边界检查通过；rc.2 完整桌面复测记录待补齐 |
 | 安装包核验 | `0.3.2` GitHub 与公共 npm registry 实际下载均为 152050 字节，与已审查发行包逐字节一致；目标官方 CLI 在全新隔离 profile 从 registry 安装成功，13 个成员与 registry 包一致，版本及构建身份正确 |
@@ -48,12 +48,13 @@
 3. 维护者启动 DSH，在原工作区检查四份新增恢复副本的历史、图片、设置和版本切换；它们保留内部版本关系，但不再连回更早原父会话。原来的坏会话仍保留，不能把打开原件失败误认为恢复副本失败。独立测试会话继续验收本次构建的按钮、两种保存、首回合助手编辑后续聊及重开持久化、附件引用与输入操作；AI 不自动启动或请求真实模型。
 4. GitHub/npm `0.3.2` 已发布，社区目录未包含在本次外部更新授权内。本仓库投稿模板已更新，外部 PR/市场同步仍需单独执行，不视为已完成。
 
-5. rc.5：源码适配与桌面验收已完成；已发布的 `0.3.2` 在 rc.5 上会被拒绝，需要让市场/npm 用户使用时另行授权发布补丁版本（版本号、CHANGELOG、安装说明按发布指南同步）。
+5. rc.5：源码适配、桌面验收及 `0.3.3` 双渠道发布已完成；社区目录条目仍指向旧版，更新需另行授权。
 
 上述事项是交接记录，不代表已经建立定时监控或自动发布任务。
 
 ## 发布与源码基线
 
+- `v0.3.3` 发布源提交：[`10bbcf36afdfcd73fc841ef5450d684c3059ad6b`](https://github.com/sh1robana/dsh-plugin-message-edit/commit/10bbcf36afdfcd73fc841ef5450d684c3059ad6b)。
 - `v0.3.2` 发布源提交：[`9628bd927fd42675b286552b9359e7ecd1da8cd4`](https://github.com/sh1robana/dsh-plugin-message-edit/commit/9628bd927fd42675b286552b9359e7ecd1da8cd4)。
 - `v0.3.1` 发布源提交：[`5dedb2413db0954bb2a500b2a970a51f2a24a8d2`](https://github.com/sh1robana/dsh-plugin-message-edit/commit/5dedb2413db0954bb2a500b2a970a51f2a24a8d2)。
 - `v0.3.0` 发布源提交：`dc5820c7304bcc87d1e0962a712c30e22889a523`。
